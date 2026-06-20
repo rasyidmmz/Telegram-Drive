@@ -15,6 +15,7 @@ dist/
 
 # Misc
 CompiledApps/
+.worktrees/
 *.log
 *.key
 Error.html
