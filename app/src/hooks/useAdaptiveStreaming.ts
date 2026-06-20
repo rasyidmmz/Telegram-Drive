@@ -542,9 +542,22 @@ export function useAdaptiveStreaming(
             const data = await resp.arrayBuffer();
             if (signal.aborted || onReadyCalledRef.current) return;
 
-            console.log('[AdaptiveStreaming] 🦊 discoverMoovTail: got', data.byteLength, 'bytes, feeding to mp4box at offset', tailStart);
-            const mp4boxBuffer = MP4BoxBuffer.fromArrayBuffer(data, tailStart);
-            mp4boxfile.appendBuffer(mp4boxBuffer);
+            console.log('[AdaptiveStreaming] 🦊 discoverMoovTail: got', data.byteLength, 'bytes at offset', tailStart);
+
+            // Extract only the moov atom from the tail data to avoid feeding
+            // mdat garbage bytes that cause mp4box parsing errors like
+            // "Invalid data found while parsing box of type 'MH'"
+            const moovAtom = extractMoovAtom(data, tailStart);
+            if (moovAtom) {
+                console.log('[AdaptiveStreaming] 🦊 discoverMoovTail: extracted moov atom at offset', moovAtom.moovOffset, 'size', moovAtom.moovData.byteLength);
+                const mp4boxBuffer = MP4BoxBuffer.fromArrayBuffer(moovAtom.moovData, moovAtom.moovOffset);
+                mp4boxfile.appendBuffer(mp4boxBuffer);
+            } else {
+                // Fallback: couldn't isolate moov — feed entire tail (existing behavior)
+                console.warn('[AdaptiveStreaming] 🦊 discoverMoovTail: could not extract moov atom, feeding full tail as fallback');
+                const mp4boxBuffer = MP4BoxBuffer.fromArrayBuffer(data, tailStart);
+                mp4boxfile.appendBuffer(mp4boxBuffer);
+            }
             // Save tail data for the fresh playback file (needed for moov-at-end)
             discoverySuffixRef.current = data.slice(0);
             discoverySuffixOffsetRef.current = tailStart;

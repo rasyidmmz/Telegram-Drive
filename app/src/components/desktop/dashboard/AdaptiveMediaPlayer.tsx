@@ -945,8 +945,8 @@ export function AdaptiveMediaPlayer({
                         </div>
                     )}
 
-                    {/* Error display */}
-                    {(displayPhase === 'error' || displayPhase === 'failed') && (
+                    {/* Error display — only shown when NOT falling back to native video */}
+                    {(displayPhase === 'error' || displayPhase === 'failed') && !useFallback && (
                         <div className="flex flex-col items-center gap-3 text-white px-8">
                             <AlertTriangle className="w-10 h-10 text-red-400" />
                             <p className="text-sm text-red-400 font-medium">Playback Error</p>
