@@ -249,6 +249,15 @@ export function AdaptiveMediaPlayer({
     // Wire late-bound refs for the progressive handler
     logRef.current = log;
 
+    const copyStreamUrlToClipboard = async () => {
+        try {
+            await writeText(effectiveStreamUrl);
+            toast.success('Link video disalin! Buka VLC lalu tekan Ctrl+N untuk memutar.', { duration: 5000 });
+        } catch (err) {
+            toast.error('Gagal menyalin link');
+        }
+    };
+
     // ── Volume state ─────────────────────────────────────────────────
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
@@ -278,16 +287,6 @@ export function AdaptiveMediaPlayer({
     // ── Subtitle State ───────────────────────────────────────────────
     const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
     const [subtitleEnabled, setSubtitleEnabled] = useState(true);
-
-    // ── External Player ───────────────────────────────────────────────
-    const copyStreamUrlToClipboard = async () => {
-        try {
-            await writeText(effectiveStreamUrl);
-            toast.success('Link video disalin! Buka VLC lalu tekan Ctrl+N untuk memutar.', { duration: 5000 });
-        } catch (err) {
-            toast.error('Gagal menyalin link');
-        }
-    };
 
     // Fetch subtitle
     useEffect(() => {
