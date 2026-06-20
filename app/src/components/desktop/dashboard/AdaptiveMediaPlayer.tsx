@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { X, ChevronLeft, ChevronRight, AlertTriangle, Loader2, RefreshCw, StopCircle, Maximize2, Minimize2, Volume2, VolumeX, Volume1, Play, Activity, Trash2, Zap, Subtitles } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, AlertTriangle, Loader2, RefreshCw, StopCircle, Maximize2, Minimize2, Volume2, VolumeX, Volume1, Play, Activity, Trash2, Zap, Subtitles, ExternalLink } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { toast } from 'sonner';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import Hls from 'hls.js';
 import { TelegramFile, StreamingQuality, TranscodePrepareResult, TranscodeJobPhase, TranscodeCapabilities, QUALITY_LABELS, HLS_QUALITIES } from '../../../types';
 import { useAdaptiveStreaming } from '../../../hooks/useAdaptiveStreaming';
@@ -277,6 +278,16 @@ export function AdaptiveMediaPlayer({
     // ── Subtitle State ───────────────────────────────────────────────
     const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
     const [subtitleEnabled, setSubtitleEnabled] = useState(true);
+
+    // ── External Player ───────────────────────────────────────────────
+    const copyStreamUrlToClipboard = async () => {
+        try {
+            await writeText(effectiveStreamUrl);
+            toast.success('Link video disalin! Buka VLC lalu tekan Ctrl+N untuk memutar.', { duration: 5000 });
+        } catch (err) {
+            toast.error('Gagal menyalin link');
+        }
+    };
 
     // Fetch subtitle
     useEffect(() => {
@@ -1186,6 +1197,15 @@ export function AdaptiveMediaPlayer({
                                     </div>
                                 </div>
 
+                                {/* External Player Button */}
+                                <button
+                                    onClick={copyStreamUrlToClipboard}
+                                    className="p-1.5 rounded-full hover:bg-white/10 transition-colors text-white/60 hover:text-white"
+                                    title="Buka di VLC / Pemutar Eksternal"
+                                >
+                                    <ExternalLink className="w-5 h-5" />
+                                </button>
+
                                 {/* CC Toggle */}
                                 {subtitleUrl && (
                                     <button
@@ -1260,6 +1280,15 @@ export function AdaptiveMediaPlayer({
 
                     {/* Mode indicator + Quality selector */}
                     <div className="flex items-center gap-2">
+                        {/* External Player Button */}
+                        <button
+                            onClick={copyStreamUrlToClipboard}
+                            className="p-1.5 rounded bg-white/5 hover:bg-white/10 transition-colors text-white/60 hover:text-white"
+                            title="Buka di VLC / Pemutar Eksternal"
+                        >
+                            <ExternalLink className="w-4 h-4" />
+                        </button>
+
                         {/* CC Toggle */}
                         {subtitleUrl && (
                             <button

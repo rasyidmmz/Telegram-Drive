@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2, Subtitles } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2, Subtitles, ExternalLink } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { toast } from 'sonner';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { TelegramFile } from '../../../types';
 import { isVideoFile, isAudioFile } from '../../../utils';
 import { AdaptiveMediaPlayer } from './AdaptiveMediaPlayer';
@@ -98,6 +100,16 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
     // ── Subtitle State ───────────────────────────────────────────────
     const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
     const [subtitleEnabled, setSubtitleEnabled] = useState(true);
+
+    const copyStreamUrlToClipboard = async () => {
+        if (!streamUrl) return;
+        try {
+            await writeText(streamUrl);
+            toast.success('Link aliran media disalin! Buka VLC lalu tekan Ctrl+N untuk memutar.', { duration: 5000 });
+        } catch (err) {
+            toast.error('Gagal menyalin link');
+        }
+    };
 
     useEffect(() => {
         if (!activeFolderId || !file.name || !streamInfo) return;
@@ -271,8 +283,8 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                 </div>
 
                 {!isFullscreen && <div className="mt-4 flex items-center justify-between w-full max-w-4xl px-4">
-                    <div className="flex-1 text-center pl-8">
-                        <h3 className="text-lg font-medium text-white">{file.name}</h3>
+                    <div className="flex-1 text-center pl-[120px] pr-4">
+                        <h3 className="text-lg font-medium text-white truncate px-4">{file.name}</h3>
                         <p className="text-sm text-white/50">
                             Streaming from Telegram Drive
                             {typeof currentIndex === 'number' && typeof totalItems === 'number' && totalItems > 0 && (
@@ -280,16 +292,25 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                             )}
                         </p>
                     </div>
-                    {/* CC Toggle */}
-                    {subtitleUrl && (
+                    {/* Controls */}
+                    <div className="flex items-center gap-2 pr-4 w-[120px] justify-end flex-shrink-0">
                         <button
-                            onClick={() => setSubtitleEnabled(!subtitleEnabled)}
-                            className={`p-2 rounded bg-white/5 hover:bg-white/10 transition-colors ${subtitleEnabled ? 'text-white' : 'text-white/40'}`}
-                            title={subtitleEnabled ? 'Disable Subtitles' : 'Enable Subtitles'}
+                            onClick={copyStreamUrlToClipboard}
+                            className="p-2 rounded bg-white/5 hover:bg-white/10 transition-colors text-white/60 hover:text-white"
+                            title="Buka di VLC / Pemutar Eksternal"
                         >
-                            <Subtitles className="w-5 h-5" />
+                            <ExternalLink className="w-5 h-5" />
                         </button>
-                    )}
+                        {subtitleUrl && (
+                            <button
+                                onClick={() => setSubtitleEnabled(!subtitleEnabled)}
+                                className={`p-2 rounded bg-white/5 hover:bg-white/10 transition-colors ${subtitleEnabled ? 'text-white' : 'text-white/40'}`}
+                                title={subtitleEnabled ? 'Disable Subtitles' : 'Enable Subtitles'}
+                            >
+                                <Subtitles className="w-5 h-5" />
+                            </button>
+                        )}
+                    </div>
                 </div>}
 
                 {/* Keyboard shortcut hints */}
