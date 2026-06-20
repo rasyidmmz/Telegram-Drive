@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2, Subtitles } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TelegramFile } from '../../../types';
@@ -23,6 +23,23 @@ interface MediaPlayerProps {
 
 function isMp4Video(name: string): boolean {
     return name.toLowerCase().endsWith('.mp4');
+}
+
+// ── SRT to WebVTT Converter ──────────────────────────────────────────
+function srtToVtt(srt: string): string {
+    let vtt = 'WEBVTT\n\n';
+    const lines = srt.replace(/\r\n/g, '\n').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.match(/^\d+$/)) {
+            vtt += line + '\n';
+        } else if (line.match(/^\d{2}:\d{2}:\d{2},\d{3}/)) {
+            vtt += line.replace(/,/g, '.') + '\n';
+        } else {
+            vtt += line + '\n';
+        }
+    }
+    return vtt;
 }
 
 export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, totalItems, activeFolderId }: MediaPlayerProps) {
@@ -77,6 +94,50 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
     const isVideo = isVideoFile(file.name);
     const isAudio = isAudioFile(file.name);
     const isMp4 = isMp4Video(file.name);
+
+    // ── Subtitle State ───────────────────────────────────────────────
+    const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
+    const [subtitleEnabled, setSubtitleEnabled] = useState(true);
+
+    useEffect(() => {
+        if (!activeFolderId || !file.name || !streamInfo) return;
+        
+        let mounted = true;
+        
+        const fetchSubtitles = async () => {
+            try {
+                const srtName = file.name.replace(/\.[^/.]+$/, "") + ".srt";
+                const files = await invoke<TelegramFile[]>('cmd_list_files', { folderId: activeFolderId, forceRefresh: false });
+                const srtFile = files.find(f => f.name === srtName);
+                
+                if (srtFile && mounted) {
+                    const url = `${streamInfo.base_url}/stream/${activeFolderId}/${srtFile.id}?token=${streamInfo.token}`;
+                    const response = await fetch(url);
+                    if (response.ok && mounted) {
+                        const srtText = await response.text();
+                        const vttText = srtToVtt(srtText);
+                        const blob = new Blob([vttText], { type: 'text/vtt' });
+                        const blobUrl = URL.createObjectURL(blob);
+                        setSubtitleUrl(blobUrl);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch subtitles:", e);
+            }
+        };
+
+        fetchSubtitles();
+
+        return () => {
+            mounted = false;
+        };
+    }, [file.name, activeFolderId, streamInfo]);
+
+    useEffect(() => {
+        return () => {
+            if (subtitleUrl) URL.revokeObjectURL(subtitleUrl);
+        };
+    }, [subtitleUrl]);
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -194,7 +255,9 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                             controlsList="nodownload"
                             autoPlay
                             className="w-full h-full object-contain"
-                        />
+                        >
+                            {subtitleUrl && subtitleEnabled && <track kind="subtitles" src={subtitleUrl} srcLang="en" label="English" default />}
+                        </video>
                     ) : isAudio ? (
                         <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-telegram-primary/20 to-black">
                             <div className="w-32 h-32 rounded-full bg-telegram-surface flex items-center justify-center mb-8 shadow-xl animate-pulse-slow">
@@ -207,14 +270,26 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     )}
                 </div>
 
-                {!isFullscreen && <div className="mt-4 text-center">
-                    <h3 className="text-lg font-medium text-white">{file.name}</h3>
-                    <p className="text-sm text-white/50">
-                        Streaming from Telegram Drive
-                        {typeof currentIndex === 'number' && typeof totalItems === 'number' && totalItems > 0 && (
-                            <span className="ml-2">• {currentIndex + 1}/{totalItems}</span>
-                        )}
-                    </p>
+                {!isFullscreen && <div className="mt-4 flex items-center justify-between w-full max-w-4xl px-4">
+                    <div className="flex-1 text-center pl-8">
+                        <h3 className="text-lg font-medium text-white">{file.name}</h3>
+                        <p className="text-sm text-white/50">
+                            Streaming from Telegram Drive
+                            {typeof currentIndex === 'number' && typeof totalItems === 'number' && totalItems > 0 && (
+                                <span className="ml-2">• {currentIndex + 1}/{totalItems}</span>
+                            )}
+                        </p>
+                    </div>
+                    {/* CC Toggle */}
+                    {subtitleUrl && (
+                        <button
+                            onClick={() => setSubtitleEnabled(!subtitleEnabled)}
+                            className={`p-2 rounded bg-white/5 hover:bg-white/10 transition-colors ${subtitleEnabled ? 'text-white' : 'text-white/40'}`}
+                            title={subtitleEnabled ? 'Disable Subtitles' : 'Enable Subtitles'}
+                        >
+                            <Subtitles className="w-5 h-5" />
+                        </button>
+                    )}
                 </div>}
 
                 {/* Keyboard shortcut hints */}

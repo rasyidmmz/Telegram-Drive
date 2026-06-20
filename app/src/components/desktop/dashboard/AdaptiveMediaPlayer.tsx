@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { X, ChevronLeft, ChevronRight, AlertTriangle, Loader2, RefreshCw, StopCircle, Maximize2, Minimize2, Volume2, VolumeX, Volume1, Play, Activity, Trash2, Zap } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, AlertTriangle, Loader2, RefreshCw, StopCircle, Maximize2, Minimize2, Volume2, VolumeX, Volume1, Play, Activity, Trash2, Zap, Subtitles } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { toast } from 'sonner';
@@ -17,6 +17,25 @@ interface AdaptiveMediaPlayerProps {
     currentIndex?: number;
     totalItems?: number;
     streamUrl: string;
+}
+
+// ── SRT to WebVTT Converter ──────────────────────────────────────────
+function srtToVtt(srt: string): string {
+    let vtt = 'WEBVTT\n\n';
+    const lines = srt.replace(/\r\n/g, '\n').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.match(/^\d+$/)) {
+            // Sequence number
+            vtt += line + '\n';
+        } else if (line.match(/^\d{2}:\d{2}:\d{2},\d{3}/)) {
+            // Timestamp
+            vtt += line.replace(/,/g, '.') + '\n';
+        } else {
+            vtt += line + '\n';
+        }
+    }
+    return vtt;
 }
 
 // ── HLS Quality State ────────────────────────────────────────────────
@@ -254,6 +273,58 @@ export function AdaptiveMediaPlayer({
         try { return localStorage.getItem('debug_overlay') === '1'; } catch { return false; }
     });
     const [debugBufferedSecs, setDebugBufferedSecs] = useState(0);
+
+    // ── Subtitle State ───────────────────────────────────────────────
+    const [subtitleUrl, setSubtitleUrl] = useState<string | null>(null);
+    const [subtitleEnabled, setSubtitleEnabled] = useState(true);
+
+    // Fetch subtitle
+    useEffect(() => {
+        if (!activeFolderId || !file.name || !streamTokenRef.current) return;
+        
+        // Track mounted state to avoid setting state on unmounted component
+        let mounted = true;
+        
+        const fetchSubtitles = async () => {
+            try {
+                const srtName = file.name.replace(/\.[^/.]+$/, "") + ".srt";
+                const files = await invoke<TelegramFile[]>('cmd_list_files', { folderId: activeFolderId, forceRefresh: false });
+                const srtFile = files.find(f => f.name === srtName);
+                
+                if (srtFile && mounted) {
+                    const url = `${streamBaseRef.current}/stream/${activeFolderId}/${srtFile.id}?token=${streamTokenRef.current}`;
+                    const response = await fetch(url);
+                    if (response.ok && mounted) {
+                        const srtText = await response.text();
+                        const vttText = srtToVtt(srtText);
+                        const blob = new Blob([vttText], { type: 'text/vtt' });
+                        const blobUrl = URL.createObjectURL(blob);
+                        setSubtitleUrl(blobUrl);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to fetch subtitles:", e);
+            }
+        };
+
+        // We need a short delay to ensure streamBaseRef and streamTokenRef are populated
+        // if this is the very first render, as they are populated in a separate useEffect.
+        const timer = setTimeout(fetchSubtitles, 100);
+
+        return () => {
+            mounted = false;
+            clearTimeout(timer);
+        };
+    }, [file.name, activeFolderId]);
+
+    // Clean up object URL when component unmounts or subtitleUrl changes
+    useEffect(() => {
+        return () => {
+            if (subtitleUrl) {
+                URL.revokeObjectURL(subtitleUrl);
+            }
+        };
+    }, [subtitleUrl]);
 
     const toggleDebugOverlay = useCallback(() => {
         setDebugOverlay(prev => {
@@ -943,7 +1014,9 @@ export function AdaptiveMediaPlayer({
 
                     {/* Fallback: native <video> (non-MP4 or no MSE support) */}
                     {useFallback && !isHlsMode && (
-                        <video src={fallbackUrl} controls controlsList="nodownload" autoPlay className="w-full h-full object-contain" />
+                        <video src={fallbackUrl} controls controlsList="nodownload" autoPlay className="w-full h-full object-contain">
+                            {subtitleUrl && subtitleEnabled && <track kind="subtitles" src={subtitleUrl} srcLang="en" label="English" default />}
+                        </video>
                     )}
 
                     {/* HLS video element — rendered as soon as HLS mode is active so attachMedia works */}
@@ -954,7 +1027,9 @@ export function AdaptiveMediaPlayer({
                             controlsList="nodownload"
                             autoPlay
                             className={`w-full h-full object-contain ${hlsPhase === 'ready' ? 'opacity-100' : 'opacity-0 absolute inset-0 pointer-events-none'}`}
-                        />
+                        >
+                            {subtitleUrl && subtitleEnabled && <track kind="subtitles" src={subtitleUrl} srcLang="en" label="English" default />}
+                        </video>
                     )}
 
                     {/* MSE video element (original mode, hidden during loading/error/HLS) */}
@@ -965,7 +1040,9 @@ export function AdaptiveMediaPlayer({
                             controlsList="nodownload"
                             autoPlay
                             className={`w-full h-full object-contain ${(isMseLoading || msePhase === 'error') ? 'opacity-0' : 'opacity-100'}`}
-                        />
+                        >
+                            {subtitleUrl && subtitleEnabled && <track kind="subtitles" src={subtitleUrl} srcLang="en" label="English" default />}
+                        </video>
                     )}
                 </div>
 
@@ -1079,6 +1156,17 @@ export function AdaptiveMediaPlayer({
                                     </div>
                                 </div>
 
+                                {/* CC Toggle */}
+                                {subtitleUrl && (
+                                    <button
+                                        onClick={() => setSubtitleEnabled(!subtitleEnabled)}
+                                        className={`p-1.5 rounded-full hover:bg-white/10 transition-colors ${subtitleEnabled ? 'text-white' : 'text-white/40'}`}
+                                        title={subtitleEnabled ? 'Disable Subtitles' : 'Enable Subtitles'}
+                                    >
+                                        <Subtitles className="w-5 h-5" />
+                                    </button>
+                                )}
+
                                 {/* File name */}
                                 <span className="text-sm text-white/80 truncate max-w-[200px]">{file.name}</span>
                             </div>
@@ -1142,6 +1230,17 @@ export function AdaptiveMediaPlayer({
 
                     {/* Mode indicator + Quality selector */}
                     <div className="flex items-center gap-2">
+                        {/* CC Toggle */}
+                        {subtitleUrl && (
+                            <button
+                                onClick={() => setSubtitleEnabled(!subtitleEnabled)}
+                                className={`p-1.5 rounded bg-white/5 hover:bg-white/10 transition-colors ${subtitleEnabled ? 'text-white' : 'text-white/40'}`}
+                                title={subtitleEnabled ? 'Disable Subtitles' : 'Enable Subtitles'}
+                            >
+                                <Subtitles className="w-4 h-4" />
+                            </button>
+                        )}
+                        
                         {/* Playback mode badge */}
                         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
                             isHlsMode
