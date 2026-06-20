@@ -876,6 +876,29 @@ export function AdaptiveMediaPlayer({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose, onNext, onPrev, toggleFullscreen, toggleMute, toggleDebugOverlay]);
 
+    // ── Auto-transcode when native fallback can't decode (e.g. HEVC) ─
+    const [fallbackAutoTranscodeAttempted, setFallbackAutoTranscodeAttempted] = useState(false);
+
+    const handleFallbackVideoError = useCallback(() => {
+        if (fallbackAutoTranscodeAttempted || !transcodeCapabilities?.available) {
+            log('Fallback video error — transcode already attempted or unavailable');
+            return;
+        }
+        log('Fallback native video failed to play — auto-triggering HLS transcode');
+        setFallbackAutoTranscodeAttempted(true);
+
+        // Pick best quality matching source resolution
+        const sh = sourceHeight;
+        let targetQuality: StreamingQuality = '720p';
+        if (sh && sh >= 1080) targetQuality = '1080p';
+        else if (sh && sh >= 720) targetQuality = '720p';
+        else if (sh && sh >= 480) targetQuality = '480p';
+        else targetQuality = '360p';
+
+        log('Auto-transcode target quality:', targetQuality, '(sourceHeight:', sh, ')');
+        startTranscode(targetQuality);
+    }, [fallbackAutoTranscodeAttempted, transcodeCapabilities, sourceHeight, startTranscode, log]);
+
     // ── Determine current display state ──────────────────────────────
     const isHlsMode = playbackMode === 'hls';
     const hasVideoTrack = tracks.some(t => t.type === 'video');
@@ -1014,7 +1037,14 @@ export function AdaptiveMediaPlayer({
 
                     {/* Fallback: native <video> (non-MP4 or no MSE support) */}
                     {useFallback && !isHlsMode && (
-                        <video src={fallbackUrl} controls controlsList="nodownload" autoPlay className="w-full h-full object-contain">
+                        <video
+                            src={fallbackUrl}
+                            controls
+                            controlsList="nodownload"
+                            autoPlay
+                            className="w-full h-full object-contain"
+                            onError={handleFallbackVideoError}
+                        >
                             {subtitleUrl && subtitleEnabled && <track kind="subtitles" src={subtitleUrl} srcLang="en" label="English" default />}
                         </video>
                     )}
