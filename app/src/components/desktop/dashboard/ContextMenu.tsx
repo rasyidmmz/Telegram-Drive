@@ -69,7 +69,7 @@ export function ContextMenu({ x, y, file, onClose, onDownload, onDelete, onPrevi
     const handleOpenInVlc = async () => {
         try {
             const streamInfo = await invoke<{ token: string; base_url: string }>('cmd_get_stream_info');
-            const folderIdParam = activeFolderId !== null ? activeFolderId.toString() : 'home';
+            const folderIdParam = activeFolderId != null ? activeFolderId.toString() : 'home';
             const streamUrl = `${streamInfo.base_url}/stream/${folderIdParam}/${file.id}?token=${streamInfo.token}`;
             
             await invoke('cmd_open_stream_in_vlc', {
