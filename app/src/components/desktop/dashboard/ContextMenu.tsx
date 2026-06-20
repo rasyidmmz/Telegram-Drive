@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Eye, HardDrive, Trash2, FolderOpen, Pencil, Play, FileText, Link, Copy, ArrowRightLeft } from 'lucide-react';
+import { Eye, HardDrive, Trash2, FolderOpen, Pencil, Play, FileText, Link, Copy, ArrowRightLeft, ExternalLink } from 'lucide-react';
+import { invoke } from '@tauri-apps/api/core';
 import { TelegramFile, TelegramFolder } from '../../../types';
 import { isMediaFile, isPdfFile } from '../../../utils';
 import { toast } from 'sonner';
@@ -65,6 +66,22 @@ export function ContextMenu({ x, y, file, onClose, onDownload, onDelete, onPrevi
         };
     }, [onClose]);
 
+    const handleOpenInVlc = async () => {
+        try {
+            const streamInfo = await invoke<{ token: string; base_url: string }>('cmd_get_stream_info');
+            const folderIdParam = activeFolderId !== null ? activeFolderId.toString() : 'home';
+            const streamUrl = `${streamInfo.base_url}/stream/${folderIdParam}/${file.id}?token=${streamInfo.token}`;
+            
+            await invoke('cmd_open_stream_in_vlc', {
+                url: streamUrl,
+                filename: file.name
+            });
+            onClose();
+        } catch (e: any) {
+            toast.error(e.message || 'Gagal membuka pemutar eksternal');
+        }
+    };
+
     return (
         <div
             ref={menuRef}
@@ -95,6 +112,13 @@ export function ContextMenu({ x, y, file, onClose, onDownload, onDelete, onPrevi
                             Preview
                         </>
                     )}
+                </button>
+            )}
+
+            {file.type !== 'folder' && isMediaFile(file.name) && (
+                <button onClick={handleOpenInVlc} className="flex items-center gap-2 px-2 py-1.5 text-sm text-telegram-text hover:bg-telegram-hover rounded transition-colors text-left w-full">
+                    <ExternalLink className="w-4 h-4 text-orange-400" />
+                    Open in VLC
                 </button>
             )}
 

@@ -219,16 +219,6 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
         );
     }
 
-    const copyStreamUrlToClipboard = async () => {
-        if (!streamUrl) return;
-        try {
-            await writeText(streamUrl);
-            toast.success('Link video disalin! Buka VLC lalu tekan Ctrl+N untuk memutar.', { duration: 5000 });
-        } catch (err) {
-            toast.error('Gagal menyalin link');
-        }
-    };
-
     return (
         <div className={`fixed inset-0 z-[200] bg-black/90 animate-in fade-in duration-200 ${isFullscreen ? 'p-0' : 'flex items-center justify-center p-4 backdrop-blur-md'}`} onClick={onClose}>
             <div ref={containerRef} className={`relative ${isFullscreen ? 'w-full h-full' : 'w-full max-w-6xl flex flex-col items-center'}`} onClick={e => e.stopPropagation()}>

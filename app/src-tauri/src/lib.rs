@@ -252,6 +252,32 @@ fn cmd_open_file_externally(path: String, app_handle: tauri::AppHandle) -> Resul
     }
 }
 
+#[tauri::command]
+fn cmd_open_stream_in_vlc(url: String, filename: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(not(target_os = "android"))]
+    {
+        use std::io::Write;
+        let temp_dir = std::env::temp_dir();
+        // Create a simple, safe alphanumeric string from the filename or use a generic one
+        let safe_name = filename.chars().filter(|c| c.is_alphanumeric()).collect::<String>();
+        let safe_name = if safe_name.is_empty() { "stream".to_string() } else { safe_name };
+        let m3u_path = temp_dir.join(format!("teledrive_{}.m3u", safe_name));
+        
+        let mut file = std::fs::File::create(&m3u_path).map_err(|e| e.to_string())?;
+        writeln!(file, "#EXTM3U").map_err(|e| e.to_string())?;
+        writeln!(file, "#EXTINF:-1,{}", filename).map_err(|e| e.to_string())?;
+        writeln!(file, "{}", url).map_err(|e| e.to_string())?;
+        
+        use tauri_plugin_opener::OpenerExt;
+        app_handle.opener().open_path(m3u_path.to_string_lossy().into_owned(), None::<&str>)
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(target_os = "android")]
+    {
+        Err("Not supported on Android".to_string())
+    }
+}
+
 /// Called by the frontend on mount (Android only) to check whether files were
 /// shared into the app via Android's share sheet before the webview was ready
 /// (cold start). Returns the count of pending shared files and resets the counter.
@@ -656,6 +682,7 @@ pub fn run() {
             commands::initiate_upload,
             commands::cmd_upload_from_url,
             cmd_open_file_externally,
+            cmd_open_stream_in_vlc,
             upload_service::cmd_start_foreground_service,
             upload_service::cmd_stop_foreground_service,
             commands::cmd_connect,
