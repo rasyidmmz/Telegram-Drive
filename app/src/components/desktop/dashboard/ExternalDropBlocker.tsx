@@ -27,20 +27,33 @@ export function ExternalDropBlocker({ onFilesDropped, onUploadClick }: { onFiles
     // and instead pass files as application-level file-open events.
     useEffect(() => {
         let unlisten: UnlistenFn | undefined;
-        let messageTimeout: ReturnType<typeof setTimeout>;
+        let unlistenNativeDrag: UnlistenFn | undefined;
+        let messageTimeout: ReturnType<typeof setTimeout> | undefined;
+        let isCancelled = false;
 
         (async () => {
             try {
-                unlisten = await listen<string>('file-dropped', (event) => {
+                const u1 = await listen<string>('file-dropped', (event) => {
                     const path = event.payload;
                     if (path && typeof path === 'string' && path.length > 0) {
                         onFilesDroppedRef.current?.([path]);
-                        // Show the same visual confirmation as DOM-based drops
                         clearTimeout(messageTimeout);
                         setDroppedCount(1);
                         messageTimeout = setTimeout(() => setDroppedCount(null), 2000);
                     }
                 });
+                if (isCancelled) u1(); else unlisten = u1;
+
+                const u2 = await listen<{ paths: string[] }>('tauri://drag-drop', (event) => {
+                    const paths = event.payload.paths;
+                    if (paths && Array.isArray(paths) && paths.length > 0) {
+                        onFilesDroppedRef.current?.(paths);
+                        clearTimeout(messageTimeout);
+                        setDroppedCount(paths.length);
+                        messageTimeout = setTimeout(() => setDroppedCount(null), 2000);
+                    }
+                });
+                if (isCancelled) u2(); else unlistenNativeDrag = u2;
             } catch (e) {
                 // listen() throws only if the event name is invalid — shouldn't happen
                 console.warn('[ExternalDropBlocker] Failed to listen for file-dropped event:', e);
@@ -48,15 +61,17 @@ export function ExternalDropBlocker({ onFilesDropped, onUploadClick }: { onFiles
         })();
 
         return () => {
+            isCancelled = true;
             if (unlisten) unlisten();
+            if (unlistenNativeDrag) unlistenNativeDrag();
             clearTimeout(messageTimeout);
         };
     }, []);
 
     useEffect(() => {
         let dragEnterCount = 0;
-        let hideTimeout: ReturnType<typeof setTimeout>;
-        let messageTimeout: ReturnType<typeof setTimeout>;
+        let hideTimeout: ReturnType<typeof setTimeout> | undefined;
+        let messageTimeout: ReturnType<typeof setTimeout> | undefined;
 
         const handleDragEnter = (e: DragEvent) => {
             if (e.dataTransfer?.types.includes('Files')) {
@@ -102,26 +117,9 @@ export function ExternalDropBlocker({ onFilesDropped, onUploadClick }: { onFiles
             clearTimeout(hideTimeout);
             clearTimeout(messageTimeout);
 
-            const files = e.dataTransfer.files;
-            const paths: string[] = [];
-
-            for (let i = 0; i < files.length; i++) {
-                // In Tauri webviews, File objects expose a non-standard .path property
-                const path = (files[i] as any).path as string | undefined;
-                if (path && typeof path === 'string' && path.length > 0) {
-                    paths.push(path);
-                }
-            }
-
-            if (paths.length > 0 && onFilesDroppedRef.current) {
-                onFilesDroppedRef.current(paths);
-                setDroppedCount(paths.length);
-                messageTimeout = setTimeout(() => setDroppedCount(null), 2000);
-            } else {
-                // Fallback: file paths not available (e.g., non-Tauri browser during dev)
-                setShowFallback(true);
-                messageTimeout = setTimeout(() => setShowFallback(false), 4000);
-            }
+            // With dragDropEnabled: true in Tauri, we rely on the native 'tauri://drag-drop'
+            // event listener to extract file paths and queue the upload.
+            // Doing it here would cause duplicate uploads.
         };
 
         // Capture phase ensures we intercept before the webview's default handler
