@@ -79,25 +79,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows
           - platform: windows-latest
             args: ''
             target: ''
-          
-          # Linux
-          - platform: ubuntu-22.04
-            args: ''
-            target: ''
-            
-          # macOS Intel
-          - platform: macos-latest
-            args: '--target x86_64-apple-darwin'
-            target: 'x86_64-apple-darwin'
-          
-          # macOS Apple Silicon
-          - platform: macos-latest
-            args: '--target aarch64-apple-darwin'
-            target: 'aarch64-apple-darwin'
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -130,7 +114,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: app
-        run: npm install
+        run: npm ci
 
       - name: Prepare Tauri signing key
         shell: node {0}

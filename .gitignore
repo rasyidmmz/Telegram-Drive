@@ -16,6 +16,7 @@ dist/
 # Misc
 CompiledApps/
 .worktrees/
+/app/src-tauri/binaries/mpv-x86_64-pc-windows-msvc.exe
 *.log
 *.key
 Error.html

@@ -6,18 +6,18 @@
     },
     "updater": {
       "endpoints": [
-        "https://github.com/caamer20/Telegram-Drive/releases/latest/download/latest.json"
+        "https://github.com/rasyidmmz/Telegram-Drive/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUwN0I3MDBFMzQ5Nzk2M0MKUldROGxwYzBEbkI3VUwwOE13MURPOUtGWWVNTGNkaFZ3WEg0MHFoR0JMSlVjNXBwYksxWEhNMkoK"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJDMDgzNzg4RkI4NEMzNTkKUldSWnc0VDdpRGNJdkhuek13S1dsa0Z2YmZ2bWthd2FYS3ZYVndKM3p4Sml0WHJBQTZGUVd5RDUK"
     }
   },
   "productName": "Telegram Drive",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "identifier": "com.cameronamer.telegramdrive",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run prepare:mpv && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run prepare:mpv && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -41,8 +41,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "createUpdaterArtifacts": true,
+    "externalBin": ["binaries/mpv"],
+    "resources": ["binaries/MPV-NOTICE.txt"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
