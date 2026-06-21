@@ -132,7 +132,7 @@ pub async fn cmd_play_video_in_mpv(
 
         let command = app_handle
             .shell()
-            .sidecar("binaries/mpv")
+            .sidecar("mpv")
             .map_err(|error| format!("Bundled mpv is unavailable: {error}"))?
             .args(args);
         let (mut events, child) = command
