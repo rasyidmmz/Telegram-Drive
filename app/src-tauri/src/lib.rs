@@ -1,4 +1,5 @@
 pub mod models;
+pub mod mpv;
 
 /// Initialize COM in Multi-Threaded Apartment mode on Windows worker threads.
 /// Tauri's main thread uses STA (required for WebView2/DragDrop), so any spawned
@@ -249,32 +250,6 @@ fn cmd_open_file_externally(path: String, app_handle: tauri::AppHandle) -> Resul
         use tauri_plugin_opener::OpenerExt;
         app_handle.opener().open_path(&path, None::<&str>)
             .map_err(|e| e.to_string())
-    }
-}
-
-#[tauri::command]
-fn cmd_open_stream_in_vlc(url: String, filename: String, app_handle: tauri::AppHandle) -> Result<(), String> {
-    #[cfg(not(target_os = "android"))]
-    {
-        use std::io::Write;
-        let temp_dir = std::env::temp_dir();
-        // Create a simple, safe alphanumeric string from the filename or use a generic one
-        let safe_name = filename.chars().filter(|c| c.is_alphanumeric()).collect::<String>();
-        let safe_name = if safe_name.is_empty() { "stream".to_string() } else { safe_name };
-        let m3u_path = temp_dir.join(format!("teledrive_{}.m3u", safe_name));
-        
-        let mut file = std::fs::File::create(&m3u_path).map_err(|e| e.to_string())?;
-        writeln!(file, "#EXTM3U").map_err(|e| e.to_string())?;
-        writeln!(file, "#EXTINF:-1,{}", filename).map_err(|e| e.to_string())?;
-        writeln!(file, "{}", url).map_err(|e| e.to_string())?;
-        
-        use tauri_plugin_opener::OpenerExt;
-        app_handle.opener().open_path(m3u_path.to_string_lossy().into_owned(), None::<&str>)
-            .map_err(|e| e.to_string())
-    }
-    #[cfg(target_os = "android")]
-    {
-        Err("Not supported on Android".to_string())
     }
 }
 
@@ -568,6 +543,7 @@ pub fn run() {
             });
             app.manage(Arc::new(bandwidth::BandwidthManager::new(app.handle())));
             app.manage(StreamConfig { token: stream_token.clone(), port: STREAM_PORT });
+            app.manage(mpv::MpvProcessState::default());
             app.manage(ActixServerHandle(server_handle_for_setup.clone()));
             app.manage(ApiServerHandle(Arc::new(std::sync::Mutex::new(None))));
             app.manage(ApiServerRunning(Arc::new(std::sync::atomic::AtomicBool::new(false))));
@@ -682,7 +658,7 @@ pub fn run() {
             commands::initiate_upload,
             commands::cmd_upload_from_url,
             cmd_open_file_externally,
-            cmd_open_stream_in_vlc,
+            mpv::cmd_play_video_in_mpv,
             upload_service::cmd_start_foreground_service,
             upload_service::cmd_stop_foreground_service,
             commands::cmd_connect,
@@ -755,7 +731,12 @@ pub fn run() {
         if let tauri::RunEvent::Exit = event {
             log::info!("Application exiting — shutting down background services...");
 
-            // 1. Shutdown the grammers network runner
+            // 1. Stop mpv before shutting down the local stream it consumes.
+            if let Err(error) = app_handle.state::<mpv::MpvProcessState>().stop() {
+                log::warn!("Failed to stop mpv during shutdown: {error}");
+            }
+
+            // 2. Shutdown the grammers network runner
             let shutdown_arc = app_handle.state::<TelegramState>().runner_shutdown.clone();
             let runner_tx = shutdown_arc.lock().ok().and_then(|mut g| g.take());
             if let Some(tx) = runner_tx {
@@ -763,7 +744,7 @@ pub fn run() {
                 let _ = tx.send(());
             }
 
-            // 2. Stop the Actix streaming server (graceful)
+            // 3. Stop the Actix streaming server (graceful)
             let server_arc = app_handle.state::<ActixServerHandle>().0.clone();
             let server_handle = server_arc.lock().ok().and_then(|mut g| g.take());
             if let Some(handle) = server_handle {
@@ -771,7 +752,7 @@ pub fn run() {
                 drop(handle.stop(true));
             }
 
-            // 3. Stop the API server (graceful)
+            // 4. Stop the API server (graceful)
             let api_arc = app_handle.state::<ApiServerHandle>().0.clone();
             let api_handle = api_arc.lock().ok().and_then(|mut g| g.take());
             if let Some(handle) = api_handle {
