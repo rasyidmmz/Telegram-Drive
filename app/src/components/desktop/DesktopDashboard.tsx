@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 
 import { TelegramFile, BandwidthStats, ShareInfo } from '../../types';
-import { formatBytes, isMediaFile, isPdfFile, isArchiveFile, nativeShareOrCopy, copyToClipboard } from '../../utils';
+import { formatBytes, isMediaFile, isVideoFile, isPdfFile, isArchiveFile, nativeShareOrCopy, copyToClipboard } from '../../utils';
 
 // Components
 import { Sidebar } from './dashboard/Sidebar';
@@ -15,7 +15,7 @@ import { UploadQueue } from './dashboard/UploadQueue';
 import { DownloadQueue } from './dashboard/DownloadQueue';
 import { MoveToFolderModal } from './dashboard/MoveToFolderModal';
 import { PreviewModal } from './dashboard/PreviewModal';
-import { MediaPlayer } from './dashboard/MediaPlayer';
+import { AudioPlayer } from './dashboard/AudioPlayer';
 import { ExternalDropBlocker } from './dashboard/ExternalDropBlocker';
 import { PdfViewer } from './dashboard/PdfViewer';
 import { ArchiveViewerModal } from './dashboard/ArchiveViewerModal';
@@ -329,6 +329,22 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         enabled: !previewFile && !playingFile && !pdfFile && !archiveViewFile && !showMoveModal
     });
 
+    const playVideoInMpv = useCallback(async (file: TelegramFile) => {
+        try {
+            const streamInfo = await invoke<{ token: string; base_url: string }>('cmd_get_stream_info');
+            const folderIdParam = activeFolderId !== null ? activeFolderId.toString() : 'home';
+            const streamUrl = `${streamInfo.base_url}/stream/${folderIdParam}/${file.id}?token=${streamInfo.token}`;
+
+            await invoke('cmd_play_video_in_mpv', {
+                url: streamUrl,
+                filename: file.name,
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            toast.error(message || 'Failed to open video in mpv');
+        }
+    }, [activeFolderId]);
+
     const handlePreview = (file: TelegramFile, orderedFiles?: TelegramFile[]) => {
         const contextFiles = (orderedFiles || displayedFiles).filter((f) => f.type !== 'folder');
         const contextIndex = contextFiles.findIndex((f) => f.id === file.id);
@@ -336,11 +352,18 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
         setPreviewContextFiles(contextFiles);
         setPreviewContextIndex(contextIndex);
 
+        const isVideo = isVideoFile(file.name);
         const isMedia = isMediaFile(file.name);
         const isPdf = isPdfFile(file.name);
         const isArchive = isArchiveFile(file.name);
 
-        if (isArchive) {
+        if (isVideo) {
+            setArchiveViewFile(null);
+            setPreviewFile(null);
+            setPlayingFile(null);
+            setPdfFile(null);
+            void playVideoInMpv(file);
+        } else if (isArchive) {
             setArchiveViewFile(file);
             setPreviewFile(null);
             setPlayingFile(null);
@@ -378,11 +401,18 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
         setPreviewContextIndex(nextIndex);
 
+        const isVideo = isVideoFile(nextFile.name);
         const isMedia = isMediaFile(nextFile.name);
         const isPdf = isPdfFile(nextFile.name);
         const isArchive = isArchiveFile(nextFile.name);
 
-        if (isArchive) {
+        if (isVideo) {
+            setArchiveViewFile(null);
+            setPreviewFile(null);
+            setPlayingFile(null);
+            setPdfFile(null);
+            void playVideoInMpv(nextFile);
+        } else if (isArchive) {
             setArchiveViewFile(nextFile);
             setPreviewFile(null);
             setPlayingFile(null);
@@ -403,7 +433,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             setPdfFile(null);
             setArchiveViewFile(null);
         }
-    }, [previewContextFiles, previewFile, playingFile, pdfFile, archiveViewFile]);
+    }, [previewContextFiles, previewFile, playingFile, pdfFile, archiveViewFile, playVideoInMpv]);
 
     const handleNextPreview = useCallback(() => {
         navigatePreview(1);
@@ -566,7 +596,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     />
                 )}
                 {playingFile && (
-                    <MediaPlayer
+                    <AudioPlayer
                         file={playingFile}
                         onClose={() => setPlayingFile(null)}
                         onNext={handleNextPreview}
@@ -574,7 +604,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         currentIndex={previewContextIndex}
                         totalItems={previewContextFiles.length}
                         activeFolderId={activeFolderId}
-                        key="media-player"
+                        key="audio-player"
                     />
                 )}
                 {pdfFile && (
