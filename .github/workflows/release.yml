@@ -134,10 +134,10 @@ jobs:
           mkdir -p app/src-tauri/bin
           if [ "${{ matrix.platform }}" = "windows-latest" ]; then
             echo "Downloading MPV for Windows..."
-            curl -L -o mpv.7z "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/v20241031/mpv-x86_64-20241031-git-98bd34a.7z"
-            7z e mpv.7z mpv.exe -oapp/src-tauri/bin/
+            curl -L -o mpv.zip "https://github.com/mpv-player/mpv/releases/download/v0.41.0/mpv-v0.41.0-x86_64-pc-windows-msvc.zip"
+            7z e mpv.zip mpv.exe -oapp/src-tauri/bin/
             mv app/src-tauri/bin/mpv.exe app/src-tauri/bin/mpv-x86_64-pc-windows-msvc.exe
-            rm mpv.7z
+            rm mpv.zip
             echo "MPV for Windows sidecar configured."
           elif [ "${{ matrix.platform }}" = "ubuntu-22.04" ]; then
             echo "Creating dummy MPV for Linux..."
