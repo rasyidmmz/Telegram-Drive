@@ -6,14 +6,9 @@ import { AuthWizard } from "./components/shared/AuthWizard";
 import { ErrorBoundary } from "./components/shared/ErrorBoundary";
 import { UpdateBanner } from "./components/shared/UpdateBanner";
 import { useUpdateCheck } from "./hooks/useUpdateCheck";
-import { usePlatform } from "./hooks/usePlatform";
 import "./App.css";
 
 const DesktopDashboard = React.lazy(() => import("./components/desktop/DesktopDashboard").then(m => ({ default: m.Dashboard })));
-// Vite requires a fully static import path for dynamic imports so it can
-// perform static analysis and code-splitting. Template literals with
-// variables prevent Vite from resolving the module at build time.
-const MobileDashboard = React.lazy(() => import("./components/mobile/MobileDashboard.tsx"));
 
 import { Toaster, toast } from "sonner";
 import { ConfirmProvider } from "./context/ConfirmContext";
@@ -30,7 +25,6 @@ function AppContent() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
   const { theme } = useTheme();
   const { available, version, downloading, progress, downloadAndInstall, dismissUpdate } = useUpdateCheck();
-  const { isMobile } = usePlatform();
   const { settings, updateSetting, isLoaded } = useSettings();
   const { i18n } = useTranslation();
 
@@ -185,15 +179,9 @@ function AppContent() {
             <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-telegram-primary"></div>
           </div>
         }>
-          {isMobile ? (
-            <ErrorBoundary>
-              <MobileDashboard onLogout={() => setAuthStatus("unauthenticated")} />
-            </ErrorBoundary>
-          ) : (
-            <ErrorBoundary>
-              <DesktopDashboard onLogout={() => setAuthStatus("unauthenticated")} />
-            </ErrorBoundary>
-          )}
+          <ErrorBoundary>
+            <DesktopDashboard onLogout={() => setAuthStatus("unauthenticated")} />
+          </ErrorBoundary>
         </Suspense>
       )}
       {authStatus === "unauthenticated" && (

@@ -41,7 +41,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "createUpdaterArtifacts": true,
     "externalBin": [
       "bin/mpv"
@@ -52,12 +54,6 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "macOS": {
-      "entitlements": "entitlements.plist"
-    },
-    "android": {
-      "minSdkVersion": 24
-    }
+    ]
   }
 }
