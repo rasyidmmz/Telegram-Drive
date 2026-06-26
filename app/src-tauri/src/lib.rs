@@ -698,6 +698,7 @@ pub fn run() {
             commands::cmd_clean_cache,
             commands::cmd_get_thumbnail,
             commands::cmd_get_stream_info,
+            commands::cmd_play_in_mpv,
             commands::cmd_cancel_transfer,
             commands::cmd_auth_qr_login,
             commands::cmd_auth_qr_poll,

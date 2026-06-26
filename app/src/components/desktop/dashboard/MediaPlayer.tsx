@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TelegramFile } from '../../../types';
 import { isVideoFile, isAudioFile } from '../../../utils';
 import { AdaptiveMediaPlayer } from './AdaptiveMediaPlayer';
+import { toast } from 'sonner';
 
 interface StreamInfo {
     token: string;
@@ -29,6 +30,8 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
     const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [isPlayingInMpv, setIsPlayingInMpv] = useState(false);
+    const [mpvError, setMpvError] = useState<string | null>(null);
 
     const toggleFullscreen = useCallback(async () => {
         try {
@@ -129,6 +132,78 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [onClose, onNext, onPrev, toggleFullscreen]);
+
+    // Reset MPV state when file changes
+    useEffect(() => {
+        setIsPlayingInMpv(false);
+        setMpvError(null);
+    }, [file.id]);
+
+    // Trigger MPV automatically when streaming URL is ready
+    useEffect(() => {
+        if (isVideo && streamUrl && !isPlayingInMpv && !mpvError) {
+            invoke('cmd_play_in_mpv', { url: streamUrl })
+                .then(() => {
+                    setIsPlayingInMpv(true);
+                })
+                .catch((err) => {
+                    console.error('Failed to play in MPV:', err);
+                    const errMsg = err?.toString() || 'Gagal membuka MPV';
+                    setMpvError(errMsg);
+                    toast.error(`Gagal memutar di MPV: ${errMsg}`);
+                });
+        }
+    }, [isVideo, streamUrl, isPlayingInMpv, mpvError]);
+
+    // MPV External Player screen
+    if (isVideo && isPlayingInMpv && streamUrl) {
+        return (
+            <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 backdrop-blur-md" onClick={onClose}>
+                <div className="relative w-full max-w-lg text-center p-8 bg-telegram-surface border border-telegram-border/60 rounded-2xl shadow-2xl flex flex-col items-center gap-6" onClick={e => e.stopPropagation()}>
+                    <div className="absolute top-4 right-4">
+                        <button
+                            onClick={onClose}
+                            className="w-10 h-10 flex items-center justify-center text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all"
+                            title="Close (Esc)"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+                    </div>
+
+                    <div className="w-20 h-20 rounded-full bg-telegram-primary/10 flex items-center justify-center text-telegram-primary border border-telegram-primary/25 animate-pulse">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 fill-current" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                    </div>
+
+                    <div>
+                        <h3 className="text-xl font-bold text-white mb-2">{file.name}</h3>
+                        <p className="text-sm text-white/60">Memutar video menggunakan MPV eksternal secara native...</p>
+                    </div>
+
+                    <div className="flex gap-3 w-full">
+                        <button
+                            onClick={() => {
+                                invoke('cmd_play_in_mpv', { url: streamUrl }).catch(err => {
+                                    toast.error(`Gagal membuka kembali MPV: ${err}`);
+                                });
+                            }}
+                            className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl transition-all text-sm font-semibold"
+                        >
+                            Buka Kembali di MPV
+                        </button>
+                        <button
+                            onClick={() => {
+                                setMpvError('Manual fallback');
+                                setIsPlayingInMpv(false);
+                            }}
+                            className="flex-1 py-3 bg-telegram-primary text-black rounded-xl hover:shadow-lg hover:shadow-telegram-primary/20 transition-all text-sm font-semibold"
+                        >
+                            Gunakan Player Internal
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     // MP4 files: use adaptive streaming with quality controls + throttling
     if (isMp4 && streamUrl) {

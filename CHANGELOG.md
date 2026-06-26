@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.9.6] - 2026-06-26
+
+### Features
+
+- **Integrasi MPV Player & Pembersihan Iklan**
+  - Mengganti video player bawaan dengan MPV eksternal secara native melalui Rust process spawning.
+  - Membaca track subtitle bawaan file secara native dan mendukung codec HEVC (h.265).
+  - Menyediakan fallback otomatis ke pemutar HTML5 bawaan jika MPV tidak terpasang di sistem.
+  - Menghapus total halaman interstitial AdGateway setelah login/pemulihan sesi.
+  - Menghapus DesktopAdBanner dari dashboard versi desktop.
+  - Menghapus AdsterraBanner dari dashboard versi mobile.
+
+---
+
 ## [1.9.5] - 2026-06-24
 
 ### Features & Grouping Polish

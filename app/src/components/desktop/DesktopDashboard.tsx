@@ -23,7 +23,6 @@ import { SettingsModal } from './dashboard/SettingsModal';
 import { ShareDialog } from './dashboard/ShareDialog';
 import { RenameFolderModal } from './dashboard/RenameFolderModal';
 import { RenameFileModal } from './dashboard/RenameFileModal';
-import { DesktopAdBanner } from './dashboard/DesktopAdBanner';
 import { RemoteUploadModal } from './dashboard/RemoteUploadModal';
 import { Link, Copy, Check, X, Loader2, Share2 } from 'lucide-react';
 
@@ -741,8 +740,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 isOpen={showSettings}
                 onClose={() => setShowSettings(false)}
             />
-
-            <DesktopAdBanner />
 
             {shareFile && (
                 <ShareDialog

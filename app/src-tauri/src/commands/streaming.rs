@@ -33,3 +33,14 @@ pub fn cmd_get_stream_info(config: State<'_, StreamConfig>) -> StreamInfo {
         base_url: format!("http://{}:{}", host, config.port),
     }
 }
+
+#[tauri::command]
+pub fn cmd_play_in_mpv(url: String) -> Result<(), String> {
+    // ponytail: launch system MPV directly via Rust stdlib, fallback to internal player if not found
+    std::process::Command::new("mpv")
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("Gagal menjalankan MPV: {}. Pastikan 'mpv' terpasang di sistem dan terdaftar dalam PATH.", e))?;
+    Ok(())
+}
+
