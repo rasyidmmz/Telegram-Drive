@@ -35,12 +35,20 @@ pub fn cmd_get_stream_info(config: State<'_, StreamConfig>) -> StreamInfo {
 }
 
 #[tauri::command]
-pub fn cmd_play_in_mpv(url: String) -> Result<(), String> {
-    // ponytail: launch system MPV directly via Rust stdlib, fallback to internal player if not found
+pub fn cmd_play_in_mpv(url: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    // Try to launch bundled sidecar mpv
+    use tauri_plugin_shell::ShellExt;
+    if let Ok(sidecar) = app_handle.shell().sidecar("mpv") {
+        if sidecar.args(&[&url]).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+
+    // Fallback: Try to launch system-installed mpv from PATH
     std::process::Command::new("mpv")
         .arg(&url)
         .spawn()
-        .map_err(|e| format!("Gagal menjalankan MPV: {}. Pastikan 'mpv' terpasang di sistem dan terdaftar dalam PATH.", e))?;
+        .map_err(|e| format!("Gagal menjalankan MPV: {}. Pastikan 'mpv' terpasang.", e))?;
     Ok(())
 }
 

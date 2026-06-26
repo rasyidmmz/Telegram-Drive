@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.7] - 2026-06-26
+
+### Bug Fixes & Sidecar Bundling
+
+- **Sidecar Bundling MPV**: Bundling `mpv.exe` secara native dalam paket installer Windows, menghilangkan keharusan bagi pengguna untuk menginstal MPV secara terpisah.
+- **Fix Flash Player**: Memperbaiki bug tampilan kedipan singkat pada pemutar video bawaan saat membuka video.
+
+---
+
 ## [1.9.6] - 2026-06-26
 
 ### Features
