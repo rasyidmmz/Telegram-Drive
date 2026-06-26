@@ -1,10 +1,8 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
-import { X, ChevronLeft, ChevronRight, Maximize2, Minimize2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { TelegramFile } from '../../../types';
 import { isVideoFile, isAudioFile } from '../../../utils';
-import { AdaptiveMediaPlayer } from './AdaptiveMediaPlayer';
 import { toast } from 'sonner';
 
 interface StreamInfo {
@@ -22,52 +20,12 @@ interface MediaPlayerProps {
     activeFolderId: number | null;
 }
 
-function isMp4Video(name: string): boolean {
-    return name.toLowerCase().endsWith('.mp4');
-}
-
 export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, totalItems, activeFolderId }: MediaPlayerProps) {
     const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const [isFullscreen, setIsFullscreen] = useState(false);
     const [isPlayingInMpv, setIsPlayingInMpv] = useState(false);
     const [mpvError, setMpvError] = useState<string | null>(null);
 
-    const toggleFullscreen = useCallback(async () => {
-        try {
-            const win = getCurrentWindow();
-            const fs = await win.isFullscreen();
-            await win.setFullscreen(!fs);
-            setIsFullscreen(!fs);
-        } catch {
-            // Not running in Tauri — fall back to webview fullscreen
-            const el = containerRef.current;
-            if (!el) return;
-            if (document.fullscreenElement) {
-                document.exitFullscreen().catch(() => {});
-            } else {
-                el.requestFullscreen().catch(() => {});
-            }
-        }
-    }, []);
-
-    // Sync isFullscreen when OS changes fullscreen (e.g. Escape / green button)
-    useEffect(() => {
-        let mounted = true;
-        let unlistenFn: (() => void) | undefined;
-        getCurrentWindow().onResized(async () => {
-            if (!mounted) return;
-            try {
-                const fs = await getCurrentWindow().isFullscreen();
-                setIsFullscreen(fs);
-            } catch {}
-        }).then(fn => { if (mounted) unlistenFn = fn; });
-        return () => {
-            mounted = false;
-            unlistenFn?.();
-        };
-    }, []);
-
+    // Get stream info on mount
     useEffect(() => {
         invoke<StreamInfo>('cmd_get_stream_info').then(setStreamInfo).catch(() => {});
     }, []);
@@ -79,69 +37,17 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
 
     const isVideo = isVideoFile(file.name);
     const isAudio = isAudioFile(file.name);
-    const isMp4 = isMp4Video(file.name);
+    const isMedia = isVideo || isAudio;
 
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            const target = e.target as HTMLElement;
-            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-                return;
-            }
-
-            const key = e.key.toLowerCase();
-
-            if (e.key === 'ArrowRight' || key === 'l') {
-                e.preventDefault();
-                onNext?.();
-                return;
-            }
-
-            if (e.key === 'ArrowLeft' || key === 'j') {
-                e.preventDefault();
-                onPrev?.();
-                return;
-            }
-
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                onClose();
-            }
-
-            if (key === 'f') {
-                e.preventDefault();
-                toggleFullscreen();
-            }
-
-            if (key === 'm') {
-                e.preventDefault();
-                const video = document.querySelector('video');
-                if (video) {
-                    video.muted = !video.muted;
-                }
-            }
-
-            if (e.key === ' ') {
-                e.preventDefault();
-                const video = document.querySelector('video');
-                if (video) {
-                    video.paused ? video.play().catch(() => {}) : video.pause();
-                }
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, onNext, onPrev, toggleFullscreen]);
-
-    // Reset MPV state when file changes
+    // Reset MPV state when file changes (playlist navigation)
     useEffect(() => {
         setIsPlayingInMpv(false);
         setMpvError(null);
     }, [file.id]);
 
-    // Trigger MPV automatically when streaming URL is ready
+    // Automatically trigger MPV launch when streamUrl is ready
     useEffect(() => {
-        if (isVideo && streamUrl && !isPlayingInMpv && !mpvError) {
+        if (isMedia && streamUrl && !isPlayingInMpv && !mpvError) {
             invoke('cmd_play_in_mpv', { url: streamUrl })
                 .then(() => {
                     setIsPlayingInMpv(true);
@@ -153,167 +59,130 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     toast.error(`Gagal memutar di MPV: ${errMsg}`);
                 });
         }
-    }, [isVideo, streamUrl, isPlayingInMpv, mpvError]);
+    }, [isMedia, streamUrl, isPlayingInMpv, mpvError]);
 
-    // MPV External Player screen
-    if (isVideo && streamUrl && !mpvError) {
-        return (
-            <div className="fixed inset-0 z-[200] bg-black/95 flex items-center justify-center p-4 backdrop-blur-md" onClick={onClose}>
-                <div className="relative w-full max-w-lg text-center p-8 bg-telegram-surface border border-telegram-border/60 rounded-2xl shadow-2xl flex flex-col items-center gap-6" onClick={e => e.stopPropagation()}>
-                    <div className="absolute top-4 right-4">
-                        <button
-                            onClick={onClose}
-                            className="w-10 h-10 flex items-center justify-center text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all"
-                            title="Close (Esc)"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-                    </div>
+    // Handle keyboard shortcuts (Left/Right arrow keys for navigation, Esc for close)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement;
+            if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+                return;
+            }
 
-                    <div className="w-20 h-20 rounded-full bg-telegram-primary/10 flex items-center justify-center text-telegram-primary border border-telegram-primary/25 animate-pulse">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 fill-current" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
-                    </div>
+            const key = e.key.toLowerCase();
+            if (e.key === 'ArrowRight' || key === 'l') {
+                e.preventDefault();
+                onNext?.();
+            } else if (e.key === 'ArrowLeft' || key === 'j') {
+                e.preventDefault();
+                onPrev?.();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                onClose();
+            }
+        };
 
-                    <div>
-                        <h3 className="text-xl font-bold text-white mb-2">{file.name}</h3>
-                        <p className="text-sm text-white/60">
-                            {isPlayingInMpv 
-                                ? "Memutar video menggunakan MPV eksternal secara native..." 
-                                : "Membuka MPV eksternal..."}
-                        </p>
-                    </div>
-
-                    <div className="flex gap-3 w-full">
-                        <button
-                            onClick={() => {
-                                invoke('cmd_play_in_mpv', { url: streamUrl }).catch(err => {
-                                    toast.error(`Gagal membuka kembali MPV: ${err}`);
-                                });
-                            }}
-                            className="flex-1 py-3 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl transition-all text-sm font-semibold"
-                        >
-                            Buka Kembali di MPV
-                        </button>
-                        <button
-                            onClick={() => {
-                                setMpvError('Manual fallback');
-                                setIsPlayingInMpv(false);
-                            }}
-                            className="flex-1 py-3 bg-telegram-primary text-black rounded-xl hover:shadow-lg hover:shadow-telegram-primary/20 transition-all text-sm font-semibold"
-                        >
-                            Gunakan Player Internal
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // MP4 files: use adaptive streaming with quality controls + throttling
-    if (isMp4 && streamUrl) {
-        return (
-            <AdaptiveMediaPlayer
-                file={file}
-                streamUrl={streamUrl}
-                activeFolderId={activeFolderId}
-                onClose={onClose}
-                onNext={onNext}
-                onPrev={onPrev}
-                currentIndex={currentIndex}
-                totalItems={totalItems}
-            />
-        );
-    }
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose, onNext, onPrev]);
 
     return (
-        <div className={`fixed inset-0 z-[200] bg-black/90 animate-in fade-in duration-200 ${isFullscreen ? 'p-0' : 'flex items-center justify-center p-4 backdrop-blur-md'}`} onClick={onClose}>
-            <div ref={containerRef} className={`relative ${isFullscreen ? 'w-full h-full' : 'w-full max-w-6xl flex flex-col items-center'}`} onClick={e => e.stopPropagation()}>
-                <div className={`absolute z-30 flex items-center gap-2 ${isFullscreen ? 'top-4 right-4' : '-top-12 right-0'}`}>
-                    <button
-                        onClick={toggleFullscreen}
-                        className="w-10 h-10 flex items-center justify-center text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all"
-                        title={isFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen (F)'}
-                    >
-                        {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-                    </button>
+        <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4 backdrop-blur-md" onClick={onClose}>
+            <div className="relative w-full max-w-lg text-center p-8 bg-telegram-surface border border-telegram-border/60 rounded-2xl shadow-2xl flex flex-col items-center gap-6" onClick={e => e.stopPropagation()}>
+                {/* Close Button */}
+                <div className="absolute top-4 right-4">
                     <button
                         onClick={onClose}
                         className="w-10 h-10 flex items-center justify-center text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all"
-                        title="Close (Esc)"
+                        title="Tutup (Esc)"
                     >
                         <X className="w-5 h-5" />
                     </button>
                 </div>
-                <button
-                    onClick={onPrev}
-                    className={`absolute top-1/2 -translate-y-1/2 p-2 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all z-10 ${isFullscreen ? 'left-4' : 'left-2'}`}
-                    title="Previous (ArrowLeft / J)"
-                >
-                    <ChevronLeft className="w-6 h-6" />
-                </button>
 
-                <button
-                    onClick={onNext}
-                    className={`absolute top-1/2 -translate-y-1/2 p-2 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all z-10 ${isFullscreen ? 'right-4' : 'right-2'}`}
-                    title="Next (ArrowRight / L)"
-                >
-                    <ChevronRight className="w-6 h-6" />
-                </button>
+                {/* Playlist Navigation Buttons */}
+                {onPrev && (
+                    <button
+                        onClick={onPrev}
+                        className="absolute left-4 top-1/2 -translate-y-1/2 p-2 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all z-10"
+                        title="Sebelumnya (ArrowLeft / J)"
+                    >
+                        <ChevronLeft className="w-6 h-6" />
+                    </button>
+                )}
 
-                <div className={`bg-black overflow-hidden flex items-center justify-center ${isFullscreen ? 'w-full h-full rounded-none shadow-none ring-0' : 'w-full aspect-video rounded-xl shadow-2xl ring-1 ring-white/10'}`}>
-                    {!streamUrl ? (
-                        <div className="flex flex-col items-center gap-4 text-white">
-                            <div className="w-10 h-10 border-4 border-telegram-primary border-t-transparent rounded-full animate-spin"></div>
-                            <p>Preparing stream...</p>
+                {onNext && (
+                    <button
+                        onClick={onNext}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all z-10"
+                        title="Berikutnya (ArrowRight / L)"
+                    >
+                        <ChevronRight className="w-6 h-6" />
+                    </button>
+                )}
+
+                {/* Media Icon & Status */}
+                {!streamUrl ? (
+                    <div className="flex flex-col items-center gap-4 py-6">
+                        <div className="w-10 h-10 border-4 border-telegram-primary border-t-transparent rounded-full animate-spin"></div>
+                        <p className="text-white/80">Menghubungkan stream...</p>
+                    </div>
+                ) : mpvError ? (
+                    <div className="flex flex-col items-center gap-4 py-4 text-center">
+                        <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 border border-red-500/20">
+                            <X className="w-8 h-8" />
                         </div>
-                    ) : isVideo ? (
-                        <video
-                            src={streamUrl}
-                            controls
-                            controlsList="nodownload"
-                            autoPlay
-                            className="w-full h-full object-contain"
-                        />
-                    ) : isAudio ? (
-                        <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-telegram-primary/20 to-black">
-                            <div className="w-32 h-32 rounded-full bg-telegram-surface flex items-center justify-center mb-8 shadow-xl animate-pulse-slow">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12 text-telegram-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
-                            </div>
-                            <audio src={streamUrl} controls autoPlay className="w-full max-w-md" />
+                        <h3 className="text-lg font-bold text-white">Gagal Memutar Media</h3>
+                        <p className="text-sm text-white/60 max-w-sm">{mpvError}</p>
+                    </div>
+                ) : (
+                    <>
+                        <div className="w-20 h-20 rounded-full bg-telegram-primary/10 flex items-center justify-center text-telegram-primary border border-telegram-primary/25 animate-pulse">
+                            {isVideo ? (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10 fill-current" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+                            ) : (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" /></svg>
+                            )}
                         </div>
-                    ) : (
-                        <div className="text-white">Unsupported media type</div>
-                    )}
-                </div>
 
-                {!isFullscreen && <div className="mt-4 text-center">
-                    <h3 className="text-lg font-medium text-white">{file.name}</h3>
-                    <p className="text-sm text-white/50">
-                        Streaming from Telegram Drive
-                        {typeof currentIndex === 'number' && typeof totalItems === 'number' && totalItems > 0 && (
-                            <span className="ml-2">• {currentIndex + 1}/{totalItems}</span>
-                        )}
-                    </p>
-                </div>}
+                        <div>
+                            <h3 className="text-xl font-bold text-white mb-2 line-clamp-2 px-6">{file.name}</h3>
+                            <p className="text-sm text-white/60">
+                                {isPlayingInMpv 
+                                    ? `Memutar ${isVideo ? 'video' : 'audio'} di MPV secara native...` 
+                                    : `Membuka ${isVideo ? 'video' : 'audio'} di MPV...`}
+                            </p>
+                        </div>
 
-                {/* Keyboard shortcut hints */}
-                {!isFullscreen && <div className="mt-2 flex items-center gap-4 text-[10px] text-white/25 select-none">
-                    <span className="flex items-center gap-1">
-                        <kbd className="px-1 py-0.5 rounded bg-white/10 text-white/40 text-[9px] font-mono">← →</kbd> Navigate
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <kbd className="px-1 py-0.5 rounded bg-white/10 text-white/40 text-[9px] font-mono">Space</kbd> Play/Pause
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <kbd className="px-1 py-0.5 rounded bg-white/10 text-white/40 text-[9px] font-mono">F</kbd> Fullscreen
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <kbd className="px-1 py-0.5 rounded bg-white/10 text-white/40 text-[9px] font-mono">Esc</kbd> Close
-                    </span>
-                    <span className="flex items-center gap-1">
-                        <kbd className="px-1 py-0.5 rounded bg-white/10 text-white/40 text-[9px] font-mono">M</kbd> Mute
-                    </span>
-                </div>}
+                        <div className="flex flex-col gap-2 w-full mt-2">
+                            <button
+                                onClick={() => {
+                                    if (streamUrl) {
+                                        invoke('cmd_play_in_mpv', { url: streamUrl }).catch(err => {
+                                            toast.error(`Gagal membuka kembali MPV: ${err}`);
+                                        });
+                                    }
+                                }}
+                                className="w-full py-3 bg-telegram-primary text-black rounded-xl hover:shadow-lg hover:shadow-telegram-primary/20 transition-all text-sm font-semibold"
+                            >
+                                Buka Kembali di MPV
+                            </button>
+                            <button
+                                onClick={onClose}
+                                className="w-full py-3 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl transition-all text-sm font-semibold"
+                            >
+                                Tutup Pemutar
+                            </button>
+                        </div>
+                    </>
+                )}
+
+                {/* Playlist Counter */}
+                {typeof currentIndex === 'number' && typeof totalItems === 'number' && totalItems > 0 && (
+                    <div className="text-[11px] text-white/40 select-none">
+                        Berkas {currentIndex + 1} dari {totalItems}
+                    </div>
+                )}
             </div>
         </div>
     );
