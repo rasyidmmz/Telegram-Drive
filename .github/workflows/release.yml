@@ -81,7 +81,7 @@ jobs:
         include:
           # Windows
           - platform: windows-latest
-            args: ''
+            args: '--bundles nsis'
             target: ''
           
           # Linux
