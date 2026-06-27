@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.9.11] - 2026-06-28
+
+### Planning & Upload Messaging
+
+- Tracked the next implementation plan in `main` and separated large-file split upload work into `codex/large-file-parts-upload`.
+- Clarified that `main` keeps current cooldown, FLOOD_WAIT handling, metadata probing, and clear large-file messaging without adding split-file architecture.
+- Updated the upload error message for Telegram's single-file limit to point users toward a future split-file build.
+
+---
+
 ## [1.9.10] - 2026-06-28
 
 ### Windows 11 x64 Focus
