@@ -1015,7 +1015,77 @@ async fn cmd_upload_file_inner(
             return Err(format!("Upload failed after {} attempts: {}", max_attempts + 1, last_err));
         }
     };
-    let message = InputMessage::new().text("").file(uploaded_file);
+
+    let lower_ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
+
+    let mut video_attrs = None;
+    if lower_ext == "mp4" || lower_ext == "mkv" {
+        if let Ok(mut f) = std::fs::File::open(&path) {
+            use std::io::Read;
+            let mut buf = vec![0u8; 2 * 1024 * 1024]; // 2 MB buffer
+            if let Ok(n) = f.read(&mut buf) {
+                buf.truncate(n);
+                if lower_ext == "mp4" {
+                    if let Ok(meta) = crate::commands::video_metadata::parse_mp4_metadata(&buf) {
+                        let (width, height) = crate::mp4_utils::scan_video_tkhd_dimensions(&buf);
+                        if let (Some(w), Some(h)) = (width, height) {
+                            video_attrs = Some((meta.duration_secs.unwrap_or(0.0), w, h));
+                        }
+                    }
+                    
+                    // Fast-Start check
+                    let has_fast_start = crate::mp4_utils::find_box(&buf, 0, b"moov").is_some();
+                    if !has_fast_start {
+                        log::warn!("Upload: Video file {:?} is not optimized for streaming (moov atom is at the end). Consider running fast-start relocation.", path);
+                    }
+                } else if lower_ext == "mkv" {
+                    if let Some((duration_secs, width, height)) = crate::mp4_utils::parse_mkv_metadata(&buf) {
+                        if let (Some(w), Some(h)) = (width, height) {
+                            video_attrs = Some((duration_secs.unwrap_or(0.0), w, h));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let message = if let Some((duration, w, h)) = video_attrs {
+        log::info!("Uploading video with attributes: duration={}s, dimensions={}x{}", duration, w, h);
+        let mime_type = match lower_ext.as_str() {
+            "mp4" => "video/mp4",
+            "mkv" => "video/x-matroska",
+            _ => "video/mp4",
+        };
+        let input_media = tl::enums::InputMedia::UploadedDocument(tl::types::InputMediaUploadedDocument {
+            file: uploaded_file.into(),
+            mime_type: mime_type.to_string(),
+            attributes: vec![
+                tl::enums::DocumentAttribute::Video(tl::types::DocumentAttributeVideo {
+                    round_message: false,
+                    supports_streaming: true,
+                    duration,
+                    w: w as i32,
+                    h: h as i32,
+                    preload_prefix_size: None,
+                }),
+                tl::enums::DocumentAttribute::Filename(tl::types::DocumentAttributeFilename {
+                    file_name: file_name.clone(),
+                }),
+            ],
+            force_file: false,
+            thumb: None,
+            nosound_video: false,
+            stickers: None,
+            ttl_seconds: None,
+        });
+        InputMessage::new().text("").file(input_media)
+    } else {
+        InputMessage::new().text("").file(uploaded_file)
+    };
 
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 

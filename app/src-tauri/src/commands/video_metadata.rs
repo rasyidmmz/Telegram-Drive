@@ -38,8 +38,39 @@ pub async fn cmd_get_video_metadata(
         state.client.lock().await.clone()
     };
     let client = client.ok_or_else(|| "Not connected to Telegram".to_string())?;
+    let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
-    let buffer = download_moov_chunk(&client, message_id, folder_id, &state).await?;
+    let messages = client
+        .get_messages_by_id(&peer, &[message_id])
+        .await
+        .map_err(|e| e.to_string())?;
+    let msg = messages.into_iter().flatten().next()
+        .ok_or_else(|| format!("Message {message_id} not found"))?;
+    let media = msg.media().ok_or_else(|| "No media".to_string())?;
+
+    let size = match &media {
+        Media::Document(d) => d.size() as u64,
+        _ => return Err("Not a document".to_string()),
+    };
+    let file_name = match &media {
+        Media::Document(d) => d.name().unwrap_or("file").to_lowercase(),
+        _ => "file".to_string(),
+    };
+
+    let buffer = download_bytes(&client, &media, size).await?;
+
+    if file_name.ends_with(".mkv") {
+        let (duration_secs, width, height) = crate::mp4_utils::parse_mkv_metadata(&buffer).unwrap_or((None, None, None));
+        return Ok(VideoMetadata {
+            duration_secs,
+            video_codec: Some("mkv".to_string()),
+            has_audio: true,
+            track_count: 1,
+            width,
+            height,
+        });
+    }
+
     let meta = parse_mp4_metadata(&buffer)?;
     let (width, height) = mp4_utils::scan_video_tkhd_dimensions(&buffer);
 
@@ -68,7 +99,8 @@ pub async fn cmd_get_video_metadata_batch(
     let mut results: Vec<BatchMetadataEntry> = Vec::with_capacity(requests.len());
 
     for req in &requests {
-        if !req.file_name.to_lowercase().ends_with(".mp4") {
+        let ext = req.file_name.to_lowercase();
+        if !ext.ends_with(".mp4") && !ext.ends_with(".mkv") {
             continue;
         }
         match download_and_process(&client, &peer, req).await {
@@ -87,11 +119,11 @@ pub async fn cmd_get_video_metadata_batch(
 
 // ── Internal helpers ─────────────────────────────────────────────────
 
-struct ParsedMetadata {
-    duration_secs: Option<f64>,
-    video_codec: Option<String>,
-    has_audio: bool,
-    track_count: usize,
+pub struct ParsedMetadata {
+    pub duration_secs: Option<f64>,
+    pub video_codec: Option<String>,
+    pub has_audio: bool,
+    pub track_count: usize,
 }
 
 /// Download the first 2 MB of a file and parse metadata + scan tkhd.
@@ -114,6 +146,18 @@ async fn download_and_process(
     };
 
     let buffer = download_bytes(client, &media, size).await?;
+    let ext = req.file_name.to_lowercase();
+
+    if ext.ends_with(".mkv") {
+        let (duration_secs, width, height) = crate::mp4_utils::parse_mkv_metadata(&buffer).unwrap_or((None, None, None));
+        return Ok(BatchMetadataEntry {
+            message_id: req.message_id,
+            duration_secs,
+            width,
+            height,
+        });
+    }
+
     let meta = parse_mp4_metadata(&buffer)?;
     let (width, height) = mp4_utils::scan_video_tkhd_dimensions(&buffer);
 
@@ -174,7 +218,7 @@ async fn download_bytes(
     Ok(buffer)
 }
 
-fn parse_mp4_metadata(buffer: &[u8]) -> Result<ParsedMetadata, String> {
+pub fn parse_mp4_metadata(buffer: &[u8]) -> Result<ParsedMetadata, String> {
     let mut cursor = std::io::Cursor::new(buffer);
     let context = mp4parse::read_mp4(&mut cursor)
         .map_err(|e| format!("MP4 parse error: {e}"))?;

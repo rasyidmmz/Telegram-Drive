@@ -47,7 +47,7 @@ export interface Settings {
 
     // ── Performance ────────────────────────────────────────
     performanceMode: boolean;        // Disable blur, shadows, and heavy animations
-    linuxRenderingFix: boolean;      // WEBKIT_DISABLE_DMABUF_RENDERER=1 (Linux only, restart required)
+    windowsAutostart: boolean;       // Launch on Windows Startup
 
     // ── Transcode cache ─────────────────────────────────────
     transcodeCacheMaxGb: number;     // 1–50 GB, default 5
@@ -95,7 +95,7 @@ const defaultSettings: Settings = {
     archiveMaxBytes: 256,  // 256 MiB
 
     performanceMode: false,
-    linuxRenderingFix: true,
+    windowsAutostart: false,
 
     transcodeCacheMaxGb: 5,
 };

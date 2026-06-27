@@ -125,3 +125,124 @@ pub fn scan_video_tkhd_dimensions(buffer: &[u8]) -> (Option<u32>, Option<u32>) {
 
     (None, None)
 }
+
+fn read_vint(data: &[u8], offset: &mut usize) -> Option<u64> {
+    let first_byte = *data.get(*offset)?;
+    let mut num_bytes = 0;
+    for i in 0..8 {
+        if (first_byte & (0x80 >> i)) != 0 {
+            num_bytes = i + 1;
+            break;
+        }
+    }
+    if num_bytes == 0 {
+        return None;
+    }
+    let mut val = (first_byte & (0xFF >> num_bytes)) as u64;
+    for _ in 1..num_bytes {
+        *offset += 1;
+        val = (val << 8) | (*data.get(*offset)? as u64);
+    }
+    *offset += 1;
+    Some(val)
+}
+
+fn read_ebml_id(data: &[u8], offset: &mut usize) -> Option<u32> {
+    let first_byte = *data.get(*offset)?;
+    let mut num_bytes = 0;
+    for i in 0..4 {
+        if (first_byte & (0x80 >> i)) != 0 {
+            num_bytes = i + 1;
+            break;
+        }
+    }
+    if num_bytes == 0 {
+        return None;
+    }
+    let mut id = 0u32;
+    for _ in 0..num_bytes {
+        id = (id << 8) | (*data.get(*offset)? as u32);
+        *offset += 1;
+    }
+    Some(id)
+}
+
+/// Parse Matroska EBML header chunk (first 2 MB) to extract duration and dimensions.
+/// Returns (duration_secs, width, height)
+pub fn parse_mkv_metadata(buffer: &[u8]) -> Option<(Option<f64>, Option<u32>, Option<u32>)> {
+    let mut offset = 0;
+    let mut duration = None;
+    let mut timecode_scale = 1_000_000.0; // default is 1ms in ns
+    let mut width = None;
+    let mut height = None;
+
+    while offset + 4 < buffer.len() {
+        let id = match read_ebml_id(buffer, &mut offset) {
+            Some(id) => id,
+            None => break,
+        };
+        let size = match read_vint(buffer, &mut offset) {
+            Some(sz) => sz as usize,
+            None => break,
+        };
+
+        // Container element IDs (Segment, Info, Tracks, TrackEntry, Video)
+        if id == 0x18538067 || id == 0x1549A966 || id == 0x1654AE6B || id == 0xAE || id == 0xE0 {
+            continue;
+        }
+
+        // Handle leaf elements within the scanned buffer
+        if offset + size <= buffer.len() {
+            match id {
+                0x2AD7B1 => { // TimecodeScale (Unsigned Integer)
+                    let mut val = 0u64;
+                    for i in 0..size {
+                        if let Some(&b) = buffer.get(offset + i) {
+                            val = (val << 8) | (b as u64);
+                        }
+                    }
+                    timecode_scale = val as f64;
+                }
+                0x4489 => { // Duration (Float: 4 or 8 bytes)
+                    if size == 4 {
+                        let mut b = [0u8; 4];
+                        if let Some(slice) = buffer.get(offset..offset + 4) {
+                            b.copy_from_slice(slice);
+                            duration = Some(f32::from_be_bytes(b) as f64);
+                        }
+                    } else if size == 8 {
+                        let mut b = [0u8; 8];
+                        if let Some(slice) = buffer.get(offset..offset + 8) {
+                            b.copy_from_slice(slice);
+                            duration = Some(f64::from_be_bytes(b));
+                        }
+                    }
+                }
+                0xB0 => { // PixelWidth
+                    let mut val = 0u32;
+                    for i in 0..size.min(4) {
+                        if let Some(&b) = buffer.get(offset + i) {
+                            val = (val << 8) | (b as u32);
+                        }
+                    }
+                    width = Some(val);
+                }
+                0xBA => { // PixelHeight
+                    let mut val = 0u32;
+                    for i in 0..size.min(4) {
+                        if let Some(&b) = buffer.get(offset + i) {
+                            val = (val << 8) | (b as u32);
+                        }
+                    }
+                    height = Some(val);
+                }
+                _ => {}
+            }
+        }
+
+        offset += size;
+    }
+
+    let duration_secs = duration.map(|d| (d * timecode_scale) / 1_000_000_000.0);
+    Some((duration_secs, width, height))
+}

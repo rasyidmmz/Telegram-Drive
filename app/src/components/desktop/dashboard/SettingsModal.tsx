@@ -578,23 +578,29 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     </button>
                                 </div>
 
-                                {/* Linux Rendering Fix */}
+                                {/* Windows Autostart */}
                                 <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
                                     <div className="flex items-center gap-2">
                                         <Monitor className="w-4 h-4 text-telegram-subtext" />
                                         <div>
-                                            <p className="text-sm text-telegram-text font-medium">{t('settings.linux_rendering_fix')}</p>
-                                            <p className="text-xs text-telegram-subtext">{t('settings.linux_rendering_desc')}</p>
+                                            <p className="text-sm text-telegram-text font-medium">{t('settings.windows_autostart')}</p>
+                                            <p className="text-xs text-telegram-subtext">{t('settings.windows_autostart_desc')}</p>
                                         </div>
                                     </div>
                                     <button
-                                        onClick={() => {
-                                            updateSetting('linuxRenderingFix', !settings.linuxRenderingFix);
-                                            toast.info(t('settings.restart_app_toast'), { duration: 5000 });
+                                        onClick={async () => {
+                                            const nextVal = !settings.windowsAutostart;
+                                            updateSetting('windowsAutostart', nextVal);
+                                            try {
+                                                await invoke('cmd_set_autostart', { enabled: nextVal });
+                                                toast.success(nextVal ? "Autostart enabled" : "Autostart disabled");
+                                            } catch (e: any) {
+                                                toast.error(e.toString());
+                                            }
                                         }}
-                                        className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${settings.linuxRenderingFix ? 'bg-telegram-primary' : 'bg-telegram-border'}`}
+                                        className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${settings.windowsAutostart ? 'bg-telegram-primary' : 'bg-telegram-border'}`}
                                     >
-                                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${settings.linuxRenderingFix ? 'translate-x-5' : 'translate-x-0'}`} />
+                                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${settings.windowsAutostart ? 'translate-x-5' : 'translate-x-0'}`} />
                                     </button>
                                 </div>
                             </section>

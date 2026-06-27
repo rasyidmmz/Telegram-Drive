@@ -58,8 +58,6 @@ pub mod server;
 pub mod api_routes;
 pub mod db;
 pub mod share_routes;
-pub mod upload_service;
-pub mod jni_cache;
 pub mod transcode;
 pub mod fmp4_remux;
 pub mod mp4_utils;
@@ -454,83 +452,6 @@ pub fn run() {
 
     let app = builder
         .setup(move |app| {
-            #[cfg(target_os = "android")]
-            {
-                // SAFETY NET: Wrap all Android JNI initialization in catch_unwind to prevent
-                // any Rust panic from crossing the JNI/FFI boundary and SIGABRTing the process.
-                let jni_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    // In Tauri v2, Tauri does not use or initialize the legacy `ndk-context` crate.
-                    // However, external crates like `reqwest` still require `ndk-context` to access
-                    // JNI handles (e.g. system proxy settings) on Android background threads.
-                    //
-                    // CRITICAL: `with_webview` dispatches its callback asynchronously onto the
-                    // WebView thread. We perform ALL JNI work (ndk-context init, ClassLoader
-                    // caching, MainActivity caching) inside this single callback so there is no
-                    // race between the init and subsequent usage.
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.with_webview(|webview| {
-                            webview.jni_handle().exec(|env, context, _webview| {
-                                // 1. Initialize ndk-context with the JVM and Activity pointers
-                                if let Ok(vm) = env.get_java_vm() {
-                                    unsafe {
-                                        let _ = ndk_context::initialize_android_context(
-                                            vm.get_java_vm_pointer().cast(),
-                                            context.as_raw().cast(),
-                                        );
-                                    }
-                                    log::info!("JNI: Successfully initialized ndk-context globally.");
-                                } else {
-                                    log::error!("JNI: Failed to get JavaVM from JNIEnv");
-                                    return;
-                                }
-
-                                // 2. Cache ClassLoader and MainActivity class references
-                                //    Using the same JNI env avoids the race condition where
-                                //    ndk_context::android_context() was called before init completed.
-                                if let Ok(class_loader_val) = env.call_method(
-                                    &context,
-                                    "getClassLoader",
-                                    "()Ljava/lang/ClassLoader;",
-                                    &[],
-                                ) {
-                                    if let Ok(class_loader_obj) = class_loader_val.l() {
-                                        if let Ok(class_loader_global) = env.new_global_ref(&class_loader_obj) {
-                                            let _ = crate::jni_cache::set_class_loader(class_loader_global);
-                                        }
-
-                                        let class_name_jstr = match env.new_string("com.cameronamer.telegramdrive.MainActivity") {
-                                            Ok(s) => Some(s),
-                                            Err(e) => {
-                                                log::error!("JNI: Failed to create MainActivity class name string: {}", e);
-                                                None
-                                            }
-                                        };
-                                        if let Some(class_name_jstr) = class_name_jstr {
-                                            if let Ok(main_class_obj_val) = env.call_method(
-                                                &class_loader_obj,
-                                                "loadClass",
-                                                "(Ljava/lang/String;)Ljava/lang/Class;",
-                                                &[jni::objects::JValue::from(&class_name_jstr)],
-                                            ) {
-                                                if let Ok(main_class_obj) = main_class_obj_val.l() {
-                                                    if let Ok(main_class_global) = env.new_global_ref(main_class_obj) {
-                                                        let _ = crate::jni_cache::set_main_activity_class(main_class_global);
-                                                        log::info!("JNI: Successfully cached MainActivity class reference globally.");
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-                        });
-                    }
-                }));
-                if let Err(e) = jni_result {
-                    log::error!("JNI: Android initialization panicked (caught): {:?}", e);
-                }
-            }
-
             app.manage(TelegramState {
                 client: Arc::new(Mutex::new(None)),
                 login_token: Arc::new(Mutex::new(None)),
@@ -673,8 +594,7 @@ pub fn run() {
             commands::initiate_upload,
             commands::cmd_upload_from_url,
             cmd_open_file_externally,
-            upload_service::cmd_start_foreground_service,
-            upload_service::cmd_stop_foreground_service,
+            commands::settings::cmd_set_autostart,
             commands::cmd_connect,
             commands::cmd_log,
             commands::cmd_delete_file,
