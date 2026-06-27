@@ -87,7 +87,6 @@ pub struct ApiServerHandle(pub Arc<std::sync::Mutex<Option<actix_web::dev::Serve
 
 /// Restart (or stop) the API server based on current settings.
 /// Called from Tauri commands when the user changes API settings.
-#[cfg(not(target_os = "android"))]
 pub fn restart_api_server(app: &tauri::AppHandle) {
     // Stop existing API server if running
     let api_handle_arc = app.state::<ApiServerHandle>().0.clone();
@@ -183,185 +182,13 @@ pub fn restart_api_server(app: &tauri::AppHandle) {
     });
 }
 
-/// Restart (or stop) the API server based on current settings.
-/// Called from Tauri commands when the user changes API settings.
-#[cfg(target_os = "android")]
-pub fn restart_api_server(_app: &tauri::AppHandle) {
-    log::info!("REST API disabled on mobile.");
-}
-
 #[tauri::command]
 fn cmd_open_file_externally(path: String, app_handle: tauri::AppHandle) -> Result<(), String> {
-    #[cfg(target_os = "android")]
-    {
-        let ctx = ndk_context::android_context();
-        let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
-            .map_err(|e| format!("Failed to resolve JVM: {}", e))?;
-        let mut env = vm.attach_current_thread()
-            .map_err(|e| format!("Failed to attach thread: {}", e))?;
-        
-        if let Some(main_class) = crate::jni_cache::get_main_activity_jclass() {
-            let path_jstr = env.new_string(&path)
-                .map_err(|e| format!("Failed to create path JString: {}", e))?;
-            
-            let lower_ext = std::path::Path::new(&path)
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-                
-            let mime_type = match lower_ext.as_str() {
-                "jpg" | "jpeg" => "image/jpeg",
-                "png" => "image/png",
-                "pdf" => "application/pdf",
-                "mp4" => "video/mp4",
-                "mp3" => "audio/mpeg",
-                "txt" => "text/plain",
-                "zip" => "application/zip",
-                _ => "application/octet-stream",
-            };
-            
-            let mime_jstr = env.new_string(mime_type)
-                .map_err(|e| format!("Failed to create mime JString: {}", e))?;
-
-            let success = env.call_static_method(
-                &main_class,
-                "openFileExternally",
-                "(Ljava/lang/String;Ljava/lang/String;)Z",
-                &[
-                    jni::objects::JValue::from(&path_jstr),
-                    jni::objects::JValue::from(&mime_jstr),
-                ],
-            ).map_err(|e| format!("Failed to call static JNI method openFileExternally: {}", e))?;
-
-            let success_bool = success.z().map_err(|e| format!("Failed to parse boolean result: {}", e))?;
-            if !success_bool {
-                return Err("Failed to launch intent from Kotlin".to_string());
-            }
-            Ok(())
-        } else {
-            Err("MainActivity reference is not cached in JNI cache".to_string())
-        }
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        use tauri_plugin_opener::OpenerExt;
-        app_handle.opener().open_path(&path, None::<&str>)
-            .map_err(|e| e.to_string())
-    }
-}
-
-/// Called by the frontend on mount (Android only) to check whether files were
-/// shared into the app via Android's share sheet before the webview was ready
-/// (cold start). Returns the count of pending shared files and resets the counter.
-#[cfg(target_os = "android")]
-#[tauri::command]
-fn cmd_get_pending_share_count() -> Result<i32, String> {
-    let ctx = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
-        .map_err(|e| format!("Failed to resolve JVM: {}", e))?;
-    let mut env = vm.attach_current_thread()
-        .map_err(|e| format!("Failed to attach thread: {}", e))?;
-
-    if let Some(main_class) = crate::jni_cache::get_main_activity_jclass() {
-        let count = env.call_static_method(
-            &main_class,
-            "getAndClearShareCount",
-            "()I",
-            &[],
-        ).map_err(|e| format!("Failed to call getAndClearShareCount: {}", e))?;
-        let count_int = count.i().map_err(|e| format!("Failed to parse share count: {}", e))?;
-        Ok(count_int)
-    } else {
-        Err("MainActivity reference not cached".to_string())
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-#[tauri::command]
-fn cmd_get_pending_share_count() -> Result<i32, String> {
-    Ok(0) // Share intents are Android-only
-}
-
-/// Returns a list of files that were shared into the app via Android's share sheet
-/// and are currently cached in uriCacheMap, ready for upload.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct CachedFileEntry {
-    uri: String,
-    cached_path: String,
-    file_name: String,
-    file_size: u64,
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-fn cmd_list_cached_files() -> Result<Vec<CachedFileEntry>, String> {
-    let ctx = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
-        .map_err(|e| format!("Failed to resolve JVM: {}", e))?;
-    let mut env = vm.attach_current_thread()
-        .map_err(|e| format!("Failed to attach thread: {}", e))?;
-
-    if let Some(main_class) = crate::jni_cache::get_main_activity_jclass() {
-        let json_val = env.call_static_method(
-            &main_class,
-            "listCachedFiles",
-            "()Ljava/lang/String;",
-            &[],
-        ).map_err(|e| format!("Failed to call listCachedFiles: {}", e))?;
-
-        let json_jstr: jni::objects::JString = json_val.l()
-            .map_err(|e| format!("listCachedFiles result is not a string: {}", e))?
-            .into();
-        let json_str: String = env.get_string(&json_jstr)
-            .map_err(|e| format!("Failed to read listCachedFiles result: {}", e))?
-            .into();
-
-        let entries: Vec<CachedFileEntry> = serde_json::from_str(&json_str)
-            .map_err(|e| format!("Failed to parse cached files JSON: {}", e))?;
-        Ok(entries)
-    } else {
-        Err("MainActivity reference not cached".to_string())
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-#[tauri::command]
-fn cmd_list_cached_files() -> Result<Vec<CachedFileEntry>, String> {
-    Ok(Vec::new()) // Share cache is Android-only
-}
-
-/// Removes a single cached file entry from the Kotlin uriCacheMap.
-/// Called by the frontend when the user clears shared files.
-#[cfg(target_os = "android")]
-#[tauri::command]
-fn cmd_remove_cached_path(uri: String) -> Result<(), String> {
-    let ctx = ndk_context::android_context();
-    let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }
-        .map_err(|e| format!("Failed to resolve JVM: {}", e))?;
-    let mut env = vm.attach_current_thread()
-        .map_err(|e| format!("Failed to attach thread: {}", e))?;
-
-    if let Some(main_class) = crate::jni_cache::get_main_activity_jclass() {
-        let j_uri = env.new_string(&uri)
-            .map_err(|e| format!("Failed to create URI string: {}", e))?;
-        env.call_static_method(
-            &main_class,
-            "removeCachedPath",
-            "(Ljava/lang/String;)V",
-            &[jni::objects::JValue::from(&j_uri)],
-        ).map_err(|e| format!("Failed to call removeCachedPath: {}", e))?;
-        let _ = env.exception_clear();
-        Ok(())
-    } else {
-        Err("MainActivity reference not cached".to_string())
-    }
-}
-
-#[cfg(not(target_os = "android"))]
-#[tauri::command]
-fn cmd_remove_cached_path(_uri: String) -> Result<(), String> {
-    Ok(()) // No-op on desktop
+    use tauri_plugin_opener::OpenerExt;
+    app_handle
+        .opener()
+        .open_path(&path, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 /// Gather system diagnostics and environment info for debugging.
@@ -379,40 +206,11 @@ fn cmd_get_system_diagnostics(
     // OS info
     lines.push(format!("OS: {} {}", std::env::consts::OS, std::env::consts::ARCH));
 
-    #[cfg(target_os = "linux")]
-    {
-        lines.push(format!("XDG_SESSION_TYPE: {}",
-            std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "unknown".into())));
-        lines.push(format!("XDG_CURRENT_DESKTOP: {}",
-            std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "unknown".into())));
-        lines.push(format!("WEBKIT_DISABLE_DMABUF_RENDERER: {}",
-            std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").unwrap_or_else(|_| "unset".into())));
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        lines.push("Package Type: macOS bundle".to_string());
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        lines.push("Package Type: Windows installer".to_string());
-    }
+    lines.push("Package Type: Windows installer".to_string());
 
     // App data dir
     if let Ok(dir) = app.path().app_data_dir() {
         lines.push(format!("App Data: {}", dir.display()));
-    }
-
-    // Check for FFmpeg
-    #[cfg(unix)]
-    {
-        let which = std::process::Command::new("which")
-            .arg("ffmpeg")
-            .output()
-            .ok()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
-        lines.push(format!("FFmpeg: {}", which.unwrap_or_else(|| "not found".into())));
     }
 
     lines.push("==================================".into());
@@ -420,7 +218,6 @@ fn cmd_get_system_diagnostics(
     Ok(lines.join("\n"))
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::init();
 
@@ -442,12 +239,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_clipboard_manager::init());
 
-    // The updater plugin is not supported on Android and can cause crashes
-    // (APKs are managed by the Play Store; the plugin attempts restricted FS ops).
-    #[cfg(not(target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
-
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
 
     let app = builder
@@ -513,61 +305,42 @@ pub fn run() {
             })?;
             app.manage(db_pool.clone());
             
-            // Start Streaming Server on dedicated thread (Actix needs its own runtime)
-            // Disabled on Android: actix_rt::System creates a second Tokio runtime that
-            // conflicts with Tauri's runtime and crashes the process on launch.
-            #[cfg(not(target_os = "android"))]
-            {
-                let state = Arc::new(app.state::<TelegramState>().inner().clone());
-                let token_for_server = stream_token.clone();
-                let handle_for_thread = server_handle_for_setup.clone();
-                let db_pool_for_server = db_pool.clone();
-                let transcode_for_server = transcode_arc.clone();
-                std::thread::spawn(move || {
-                    #[cfg(target_os = "windows")]
-                    init_com_on_worker_thread();
-                    let sys = actix_rt::System::new();
-                    sys.block_on(async move {
-                        match server::start_server(state, STREAM_PORT, token_for_server, db_pool_for_server, transcode_for_server).await {
-                            Ok(server) => {
-                                if let Ok(mut handle) = handle_for_thread.lock() {
-                                    *handle = Some(server.handle());
-                                }
-                                // Now await the server — blocks until stopped
-                                server.await.ok();
+            let state = Arc::new(app.state::<TelegramState>().inner().clone());
+            let token_for_server = stream_token.clone();
+            let handle_for_thread = server_handle_for_setup.clone();
+            let db_pool_for_server = db_pool.clone();
+            let transcode_for_server = transcode_arc.clone();
+            std::thread::spawn(move || {
+                init_com_on_worker_thread();
+                let sys = actix_rt::System::new();
+                sys.block_on(async move {
+                    match server::start_server(state, STREAM_PORT, token_for_server, db_pool_for_server, transcode_for_server).await {
+                        Ok(server) => {
+                            if let Ok(mut handle) = handle_for_thread.lock() {
+                                *handle = Some(server.handle());
                             }
-                            Err(e) => log::error!("Streaming server failed: {}", e),
+                            server.await.ok();
                         }
-                    });
+                        Err(e) => log::error!("Streaming server failed: {}", e),
+                    }
                 });
-            }
-            #[cfg(target_os = "android")]
-            {
-                log::info!("Streaming server disabled on Android (Actix runtime conflict avoidance).");
-            }
+            });
 
             // Start API server if enabled in settings
             restart_api_server(app.handle());
 
-            // Start VPN keep-alive background task
-            // Disabled on Android: unnecessary on mobile and spawn_blocking may
-            // conflict with the platform's background execution limits.
-            #[cfg(not(target_os = "android"))]
-            {
-                let ka_config = net_config.clone();
-                tauri::async_runtime::spawn(async move {
-                    loop {
-                        let interval = ka_config.keep_alive_interval_sec();
-                        if interval == 0 {
-                            // Disabled — check again in 10s
-                            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                            continue;
-                        }
-                        tokio::time::sleep(std::time::Duration::from_secs(interval as u64)).await;
-                        // TCP ping to Telegram DC2 (best-effort)
-                        let _ = tauri::async_runtime::spawn_blocking(|| {
-                            use std::net::TcpStream;
-                            let addr: std::net::SocketAddr = match "149.154.167.50:443".parse() {
+            let ka_config = net_config.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    let interval = ka_config.keep_alive_interval_sec();
+                    if interval == 0 {
+                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                        continue;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(interval as u64)).await;
+                    let _ = tauri::async_runtime::spawn_blocking(|| {
+                        use std::net::TcpStream;
+                        let addr: std::net::SocketAddr = match "149.154.167.50:443".parse() {
                             Ok(a) => a,
                             Err(e) => {
                                 log::error!("VPN keep-alive: failed to parse DC2 address: {}", e);
@@ -575,13 +348,12 @@ pub fn run() {
                             }
                         };
                         let _ = TcpStream::connect_timeout(
-                                &addr,
-                                std::time::Duration::from_secs(5),
-                            );
-                        }).await;
-                    }
-                });
-            }
+                            &addr,
+                            std::time::Duration::from_secs(5),
+                        );
+                    }).await;
+                }
+            });
 
             Ok(())
         })
@@ -639,9 +411,6 @@ pub fn run() {
             commands::cmd_revoke_share,
             commands::cmd_toggle_folder_visibility,
             commands::cmd_export_folder_invite,
-            cmd_get_pending_share_count,
-            cmd_list_cached_files,
-            cmd_remove_cached_path,
             cmd_get_system_diagnostics,
             commands::cmd_get_video_metadata,
             commands::cmd_get_video_metadata_batch,

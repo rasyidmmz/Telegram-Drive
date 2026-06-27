@@ -65,12 +65,7 @@ tokio-rustls = "0.26"
 rustls = "0.23"
 webpki-roots = "0.26"
 
-[target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
-ndk-context = "0.1.1"
-
 [package.metadata.tauri.bundle.windows]
 # Embed the WebView2 bootstrapper so the app works on Windows systems
 # where the WebView2 runtime is not pre-installed (fresh installs, servers, etc.)
 webview-install-mode = "embeddir"
-

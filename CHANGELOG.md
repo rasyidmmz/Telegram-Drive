@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.9.10] - 2026-06-28
+
+### Windows 11 x64 Focus
+
+- Removed Android-specific upload/download paths, JNI/NDK dependencies, mobile share handlers, mobile Tauri capability, and iOS icon assets.
+- Simplified file upload, download, PDF preview, auth, autostart, VPN detection, and FFmpeg detection around the Windows desktop runtime.
+- Updated the release workflow to run on Windows runners with PowerShell and produce the Windows NSIS bundle only.
+
+---
+
 ## [1.9.7] - 2026-06-26
 
 ### Bug Fixes & Sidecar Bundling

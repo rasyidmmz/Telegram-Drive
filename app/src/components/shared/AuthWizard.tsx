@@ -40,7 +40,7 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                     This application cannot function here because it requires access to the system backend (Rust).
                 </p>
                 <div className="p-4 bg-gray-800 rounded-xl border border-gray-700 text-sm text-gray-300">
-                    Please open the <strong>Telegram Drive</strong> window in your OS taskbar/dock to continue.
+                    Please open the <strong>Telegram Drive</strong> window in your Windows taskbar to continue.
                 </div>
             </div>
         )
@@ -60,13 +60,6 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
     const [showHelp, setShowHelp] = useState(false);
     const [showDonate, setShowDonate] = useState(false);
     const [loginMethod, setLoginMethod] = useState<'phone' | 'qr'>('phone');
-    const isMobile = typeof navigator !== 'undefined' && /android|iphone|ipad|ipod/i.test(navigator.userAgent.toLowerCase());
-
-    useEffect(() => {
-        if (isMobile && loginMethod !== 'phone') {
-            setLoginMethod('phone');
-        }
-    }, [isMobile, loginMethod]);
     const [qrUrl, setQrUrl] = useState<string | null>(null);
     const [qrPolling, setQrPolling] = useState(false);
     const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -384,33 +377,30 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
                                     exit={{ x: -20, opacity: 0 }}
                                     className="space-y-6"
                                 >
-                                    {/* Phone / QR Toggle */}
-                                    {!isMobile && (
-                                        <div className="flex rounded-xl overflow-hidden border border-white/10">
-                                            <button
-                                                type="button"
-                                                onClick={() => { setLoginMethod('phone'); setQrUrl(null); setQrPolling(false); setError(null); }}
-                                                className={`flex-1 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-all ${
-                                                    loginMethod === 'phone'
-                                                        ? 'bg-white/15 text-white'
-                                                        : 'text-white/50 hover:text-white/70'
-                                                }`}
-                                            >
-                                                <Phone className="w-4 h-4" /> Phone Number
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => { setLoginMethod('qr'); setError(null); handleQrLogin(); }}
-                                                className={`flex-1 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-all ${
-                                                    loginMethod === 'qr'
-                                                        ? 'bg-white/15 text-white'
-                                                        : 'text-white/50 hover:text-white/70'
-                                                }`}
-                                            >
-                                                <QrCode className="w-4 h-4" /> QR Code
-                                            </button>
-                                        </div>
-                                    )}
+                                    <div className="flex rounded-xl overflow-hidden border border-white/10">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setLoginMethod('phone'); setQrUrl(null); setQrPolling(false); setError(null); }}
+                                            className={`flex-1 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-all ${
+                                                loginMethod === 'phone'
+                                                    ? 'bg-white/15 text-white'
+                                                    : 'text-white/50 hover:text-white/70'
+                                            }`}
+                                        >
+                                            <Phone className="w-4 h-4" /> Phone Number
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setLoginMethod('qr'); setError(null); handleQrLogin(); }}
+                                            className={`flex-1 py-2.5 text-sm font-medium flex items-center justify-center gap-2 transition-all ${
+                                                loginMethod === 'qr'
+                                                    ? 'bg-white/15 text-white'
+                                                    : 'text-white/50 hover:text-white/70'
+                                            }`}
+                                        >
+                                            <QrCode className="w-4 h-4" /> QR Code
+                                        </button>
+                                    </div>
 
                                     {loginMethod === 'phone' ? (
                                         <form onSubmit={handlePhoneSubmit} className="space-y-6">

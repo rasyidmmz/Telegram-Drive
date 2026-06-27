@@ -5,7 +5,7 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { QueueItem } from '../types';
-import { isAndroidPlatform, showFileDialogFallback, pickWithFallback } from '../utils';
+import { showFileDialogFallback, pickWithFallback } from '../utils';
 import { useSettings } from '../context/SettingsContext';
 import type { Store } from '@tauri-apps/plugin-store';
 
@@ -100,18 +100,6 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
             processItem(item);
         }
     }, [uploadQueue, settings.maxConcurrentUploads]);
-
-    // Manage Android Foreground Service for persistent uploads
-    useEffect(() => {
-        if (!isAndroidPlatform) return;
-
-        const hasActiveUploads = uploadQueue.some(i => i.status === 'uploading' || i.status === 'pending');
-        if (hasActiveUploads) {
-            invoke('cmd_start_foreground_service').catch(() => {});
-        } else if (initialized) {
-            invoke('cmd_stop_foreground_service').catch(() => {});
-        }
-    }, [uploadQueue, initialized]);
 
     /** Clean up temp zip file if the item was created from a folder */
     const cleanupTempZip = async (item: QueueItem) => {

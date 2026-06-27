@@ -1,11 +1,10 @@
 import { useEffect, useState, useRef } from 'react';
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize } from 'lucide-react';
-import { invoke, convertFileSrc } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 // Use the legacy build — the modern build uses Map.getOrInsertComputed()
 // which isn't available in Tauri's WebKit WebView
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { TelegramFile } from '../../../types';
-import { isAndroidPlatform } from '../../../utils';
 
 // Use Vite's ?url suffix to get a properly bundled asset URL for the worker
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
@@ -60,7 +59,6 @@ export function PdfViewer({ file, onClose, onNext, onPrev, currentIndex, totalIt
 
     // Fetch stream info once
     useEffect(() => {
-        if (isAndroidPlatform) return; // skip on Android
         invoke<StreamInfo>('cmd_get_stream_info').then(setStreamInfo).catch((err) => {
             console.error("Failed to get stream info:", err);
             setError("Failed to initialize stream");
@@ -75,75 +73,6 @@ export function PdfViewer({ file, onClose, onNext, onPrev, currentIndex, totalIt
         setPdf(null);
         setNumPages(0);
 
-        if (isAndroidPlatform) {
-            let activeLoadingTask: any = null;
-            // Android: load via converted cache file URL
-            invoke<string>('cmd_get_preview', {
-                messageId: file.id,
-                folderId: activeFolderId
-            }).then((filePath) => {
-                if (cancelled) return;
-                if (filePath) {
-                    const url = convertFileSrc(filePath);
-                    const loadingTask = pdfjsLib.getDocument({
-                        url: url,
-                        disableRange: true,
-                        disableStream: true,
-                        disableAutoFetch: true,
-                    });
-                    activeLoadingTask = loadingTask;
-                    loadingTask.promise.then(
-                        (pdfDoc) => {
-                            if (cancelled) {
-                                pdfDoc.destroy();
-                                return;
-                            }
-                            if (pdfRef.current) {
-                                pdfRef.current.destroy();
-                            }
-                            pdfRef.current = pdfDoc;
-                            setPdf(pdfDoc);
-                            setNumPages(pdfDoc.numPages);
-                            setLoading(false);
-                        },
-                        (err) => {
-                            if (cancelled) return;
-                            console.error("Error loading PDF via cache URL, falling back to external opener:", err);
-                            invoke('cmd_open_file_externally', { path: filePath })
-                                .then(() => {
-                                    if (!cancelled) onClose();
-                                })
-                                .catch((exErr) => {
-                                    if (!cancelled) {
-                                        setError("Failed to render PDF in WebView or open natively: " + String(exErr));
-                                        setLoading(false);
-                                    }
-                                });
-                        }
-                    );
-                } else {
-                    setError("Failed to fetch PDF preview path.");
-                    setLoading(false);
-                }
-            }).catch((err) => {
-                if (cancelled) return;
-                console.error("Error invoking PDF preview command:", err);
-                setError("Failed to load PDF.");
-                setLoading(false);
-            });
-
-            return () => {
-                cancelled = true;
-                if (activeLoadingTask) {
-                    activeLoadingTask.destroy();
-                }
-                if (pdfRef.current) {
-                    pdfRef.current.destroy();
-                }
-            };
-        }
-
-        // Desktop: stream via Actix local server
         if (!streamInfo) return;
 
         const folderIdParam = activeFolderId !== null ? activeFolderId.toString() : 'home';

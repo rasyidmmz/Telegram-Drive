@@ -250,8 +250,7 @@
     "shared_files": "Shared Files ({{count}})",
     "clear_shared_files": "Clear all shared files",
     "select_app_language": "Select application language",
-    "clear_all_transcoded_cache": "Clear All Transcoded Cache",
-    "socks5_desc_mobile": "SOCKS5 (MTProto not supported)"
+    "clear_all_transcoded_cache": "Clear All Transcoded Cache"
   },
   "files": {
     "download": "Download",

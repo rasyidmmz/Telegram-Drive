@@ -396,10 +396,7 @@ impl TranscodeManager {
 pub async fn detect_ffmpeg(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
     // 1. Try sidecar binary in the app's resource directory
     if let Ok(resource_dir) = app_handle.path().resource_dir() {
-        #[cfg(target_os = "windows")]
         let sidecar_name = "ffmpeg.exe";
-        #[cfg(not(target_os = "windows"))]
-        let sidecar_name = "ffmpeg";
 
         let sidecar_path: PathBuf = resource_dir.join(sidecar_name);
         if sidecar_path.exists() {

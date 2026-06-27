@@ -224,7 +224,6 @@
     "clear_shared_files": "Clear all shared files",
     "select_app_language": "Select application language",
     "clear_all_transcoded_cache": "Clear All Transcoded Cache",
-    "socks5_desc_mobile": "SOCKS5 (MTProto not supported)",
     "http_bridge_desc": "HTTP/HTTPS proxy tunneling via local SOCKS5 bridge.",
     "proxy_status_checking": "Checking...",
     "proxy_status_connected": "Connected",

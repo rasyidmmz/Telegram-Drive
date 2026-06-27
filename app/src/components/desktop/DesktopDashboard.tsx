@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 
 import { TelegramFile, BandwidthStats, ShareInfo } from '../../types';
-import { formatBytes, isMediaFile, isPdfFile, isArchiveFile, nativeShareOrCopy, copyToClipboard } from '../../utils';
+import { formatBytes, isMediaFile, isPdfFile, isArchiveFile, copyToClipboard } from '../../utils';
 
 // Components
 import { Sidebar } from './dashboard/Sidebar';
@@ -24,7 +24,7 @@ import { ShareDialog } from './dashboard/ShareDialog';
 import { RenameFolderModal } from './dashboard/RenameFolderModal';
 import { RenameFileModal } from './dashboard/RenameFileModal';
 import { RemoteUploadModal } from './dashboard/RemoteUploadModal';
-import { Link, Copy, Check, X, Loader2, Share2 } from 'lucide-react';
+import { Link, Copy, Check, X, Loader2 } from 'lucide-react';
 
 // Hooks
 import { useTelegramConnection } from '../../hooks/useTelegramConnection';
@@ -817,14 +817,6 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                                                 >
                                                     {isCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                                                 </button>
-                                                {typeof navigator !== 'undefined' && typeof navigator.share === 'function' && (
-                                                    <button
-                                                        onClick={() => nativeShareOrCopy(file.name, file.sizeStr, link, () => handleCopyBulkLink(link))}
-                                                        className="px-2.5 py-1.5 rounded-lg bg-telegram-primary/20 hover:bg-telegram-primary/30 text-telegram-primary border border-telegram-primary/30 transition-all flex items-center justify-center flex-shrink-0"
-                                                    >
-                                                        <Share2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                )}
                                             </div>
                                         </div>
                                     );

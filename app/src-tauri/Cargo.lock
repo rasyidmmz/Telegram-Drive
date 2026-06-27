@@ -382,7 +382,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "app"
-version = "1.9.5"
+version = "1.9.10"
 dependencies = [
  "actix-cors",
  "actix-files",
@@ -401,10 +401,8 @@ dependencies = [
  "grammers-mtsender",
  "grammers-session",
  "grammers-tl-types",
- "jni 0.21.1",
  "log",
  "mp4parse",
- "ndk-context",
  "rand 0.9.4",
  "rar",
  "reqwest 0.12.28",

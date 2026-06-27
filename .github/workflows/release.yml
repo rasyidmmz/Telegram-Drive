@@ -7,7 +7,7 @@ on:
 
 jobs:
   create-release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     outputs:
       release_id: ${{ steps.create-release.outputs.result }}
     permissions:
@@ -17,17 +17,29 @@ jobs:
 
       - name: Get version from tag
         id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          "VERSION=$version" >> $env:GITHUB_OUTPUT
 
       - name: Extract changelog for this version
         id: changelog
+        shell: pwsh
         run: |
-          # Extract the first version block from CHANGELOG.md (between first and second ## headings)
-          BODY=$(awk '/^## \[/{if(found) exit; found=1; next} found' CHANGELOG.md)
-          # Escape for GitHub Actions output
-          echo "BODY<<EOF" >> $GITHUB_OUTPUT
-          echo "$BODY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          $lines = Get-Content CHANGELOG.md
+          $body = New-Object System.Collections.Generic.List[string]
+          $found = $false
+          foreach ($line in $lines) {
+            if ($line -match '^## \[') {
+              if ($found) { break }
+              $found = $true
+              continue
+            }
+            if ($found) { $body.Add($line) }
+          }
+          "BODY<<EOF" >> $env:GITHUB_OUTPUT
+          ($body -join "`n") >> $env:GITHUB_OUTPUT
+          "EOF" >> $env:GITHUB_OUTPUT
 
       - name: Create Release
         id: create-release
@@ -93,15 +105,15 @@ jobs:
           workspaces: './app/src-tauri -> target'
 
       - name: Setup MPV Sidecar Binary
-        shell: bash
+        shell: pwsh
         run: |
-          mkdir -p app/src-tauri/bin
-          echo "Downloading MPV for Windows..."
-          curl -L -o mpv.zip "https://github.com/mpv-player/mpv/releases/download/v0.41.0/mpv-v0.41.0-x86_64-pc-windows-msvc.zip"
-          7z e mpv.zip mpv.exe -oapp/src-tauri/bin/
-          mv app/src-tauri/bin/mpv.exe app/src-tauri/bin/mpv-x86_64-pc-windows-msvc.exe
-          rm mpv.zip
-          echo "MPV for Windows sidecar configured."
+          New-Item -ItemType Directory -Force app/src-tauri/bin | Out-Null
+          Write-Host "Downloading MPV for Windows..."
+          curl.exe -L -o mpv.zip "https://github.com/mpv-player/mpv/releases/download/v0.41.0/mpv-v0.41.0-x86_64-pc-windows-msvc.zip"
+          7z e mpv.zip mpv.exe "-oapp/src-tauri/bin/"
+          Move-Item -Force app/src-tauri/bin/mpv.exe app/src-tauri/bin/mpv-x86_64-pc-windows-msvc.exe
+          Remove-Item mpv.zip
+          Write-Host "MPV for Windows sidecar configured."
 
       - name: Install frontend dependencies
         working-directory: app
@@ -134,7 +146,7 @@ jobs:
 
   publish-release:
     needs: [create-release, build-tauri]
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     permissions:
       contents: write
     steps:
