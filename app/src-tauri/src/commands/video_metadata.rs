@@ -53,7 +53,7 @@ pub async fn cmd_get_video_metadata(
         _ => return Err("Not a document".to_string()),
     };
     let file_name = match &media {
-        Media::Document(d) => d.name().unwrap_or("file").to_lowercase(),
+        Media::Document(d) => d.name().map(|n| n.to_lowercase()).unwrap_or_else(|| "file".to_string()),
         _ => "file".to_string(),
     };
 
