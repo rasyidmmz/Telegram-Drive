@@ -147,18 +147,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
+    // Persist settings whenever they change after the initial load completes
+    useEffect(() => {
+        if (isLoaded) {
+            persistSettings(settings);
+        }
+    }, [settings, isLoaded, persistSettings]);
+
     const updateSetting = useCallback(<K extends keyof Settings>(key: K, value: Settings[K]) => {
-        setSettings(prev => {
-            const next = { ...prev, [key]: value };
-            persistSettings(next);
-            return next;
-        });
-    }, [persistSettings]);
+        setSettings(prev => ({ ...prev, [key]: value }));
+    }, []);
 
     const resetSettings = useCallback(() => {
         setSettings(defaultSettings);
-        persistSettings(defaultSettings);
-    }, [persistSettings]);
+    }, []);
 
     return (
         <SettingsContext.Provider value={{ settings, updateSetting, resetSettings, isLoaded }}>

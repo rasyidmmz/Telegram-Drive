@@ -668,13 +668,16 @@ struct ProgressPayload {
 
 /// Async reader wrapper that tracks bytes read for progress reporting.
 /// Wraps a tokio File and counts how many bytes have been consumed.
-struct ProgressReader {
+pub(crate) struct ProgressReader {
     inner: tokio::io::BufReader<tokio::fs::File>,
     bytes_read: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    start_time: std::time::Instant,
+    limit: u64,
+    sleep_future: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl ProgressReader {
-    async fn new(path: &str) -> Result<(Self, u64, std::sync::Arc<std::sync::atomic::AtomicU64>), String> {
+    pub(crate) async fn new(path: &str, limit: u64) -> Result<(Self, u64, std::sync::Arc<std::sync::atomic::AtomicU64>), String> {
         let file = tokio::fs::File::open(path).await.map_err(|e| e.to_string())?;
         let metadata = file.metadata().await.map_err(|e| e.to_string())?;
         let size = metadata.len();
@@ -682,6 +685,9 @@ impl ProgressReader {
         let reader = Self {
             inner: tokio::io::BufReader::new(file),
             bytes_read: counter.clone(),
+            start_time: std::time::Instant::now(),
+            limit,
+            sleep_future: None,
         };
         Ok((reader, size, counter))
     }
@@ -693,12 +699,52 @@ impl tokio::io::AsyncRead for ProgressReader {
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
+        use std::future::Future;
+
+        // 1. If we are sleeping to throttle, check the sleep future first
+        if let Some(ref mut sleep) = self.sleep_future {
+            match std::pin::Pin::new(sleep).poll(cx) {
+                std::task::Poll::Ready(()) => {
+                    self.sleep_future = None;
+                }
+                std::task::Poll::Pending => {
+                    return std::task::Poll::Pending;
+                }
+            }
+        }
+
+        // 2. Perform the read
         let before = buf.filled().len();
         let result = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
         if let std::task::Poll::Ready(Ok(())) = &result {
             let after = buf.filled().len();
             let delta = (after - before) as u64;
             self.bytes_read.fetch_add(delta, std::sync::atomic::Ordering::Relaxed);
+
+            // 3. Throttle if limit is active
+            let limit = self.limit;
+            if limit > 0 {
+                let current_bytes = self.bytes_read.load(std::sync::atomic::Ordering::Relaxed);
+                let elapsed = self.start_time.elapsed().as_secs_f64();
+                if elapsed > 0.01 {
+                    let current_rate = current_bytes as f64 / elapsed;
+                    if current_rate > limit as f64 {
+                        let target_time = current_bytes as f64 / limit as f64;
+                        let needed_sleep = target_time - elapsed;
+                        if needed_sleep > 0.005 {
+                            let sleep_duration = std::time::Duration::from_secs_f64(needed_sleep);
+                            let mut sleep = Box::pin(tokio::time::sleep(sleep_duration));
+                            match std::pin::Pin::new(&mut sleep).poll(cx) {
+                                std::task::Poll::Ready(()) => {}
+                                std::task::Poll::Pending => {
+                                    self.sleep_future = Some(sleep);
+                                    return std::task::Poll::Pending;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         result
     }
@@ -819,92 +865,156 @@ async fn cmd_upload_file_inner(
         });
     }
 
-    // Create progress-tracking reader
-    let (mut reader, file_size, bytes_counter) = ProgressReader::new(&path).await.map_err(|e| {
-        bw_state.release_up(size);
-        e
-    })?;
     let file_name = std::path::Path::new(&path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "file".to_string());
 
-    // Spawn a progress reporter task that emits events every 250ms
-    let cancelled = state.cancelled_transfers.clone();
-    let progress_tid = tid.clone();
-    let progress_handle = app_handle.clone();
-    let progress_counter = bytes_counter.clone();
-    let progress_task = if !tid.is_empty() {
-        Some(tokio::spawn(async move {
-            let mut last_bytes: u64 = 0;
-            let mut last_time = std::time::Instant::now();
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                let current = progress_counter.load(std::sync::atomic::Ordering::Relaxed);
-                let now = std::time::Instant::now();
-                let dt = now.duration_since(last_time).as_secs_f64();
-                let speed = if dt > 0.0 { ((current - last_bytes) as f64 / dt) as u64 } else { 0 };
-                let percent = if file_size > 0 { ((current as f64 / file_size as f64) * 100.0).min(99.0) as u8 } else { 0 };
-
-                let _ = progress_handle.emit("upload-progress", ProgressPayload {
-                    id: progress_tid.clone(), percent, uploaded_bytes: current, total_bytes: file_size, speed_bytes_per_sec: speed,
-                });
-
-                last_bytes = current;
-                last_time = now;
-
-                if current >= file_size { break; }
-                // Check cancellation
-                if cancelled.read().await.contains(&progress_tid) { break; }
-            }
-        }))
-    } else {
-        None
-    };
-
-    // Check cancellation before starting
-    if state.cancelled_transfers.read().await.contains(&tid) {
-        state.cancelled_transfers.write().await.remove(&tid);
-        if let Some(t) = progress_task { t.abort(); }
-        return Err("Transfer cancelled".to_string());
+    let mut limit = 0;
+    let user_limit = net_config.upload_limit_bytes_per_sec();
+    if user_limit > 0 {
+        limit = user_limit;
+    }
+    if size > 2 * 1024 * 1024 * 1024 {
+        let auto_throttle = 5 * 1024 * 1024; // 5 MB/s
+        limit = if limit > 0 { limit.min(auto_throttle) } else { auto_throttle };
+        log::info!("File size is > 2GB ({} bytes). Auto-throttling upload speed to 5 MB/s.", size);
     }
 
-    let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
-    if !tid.is_empty() {
-        get_upload_cancellations().lock().unwrap().insert(tid.clone(), cancel_tx);
-    }
+    let mut attempt = 0;
+    let max_attempts = net_config.retry_attempts();
+    let base_ms = net_config.retry_base_backoff_ms();
+    let max_ms = net_config.retry_max_backoff_ms();
+    let respect_flood = net_config.should_respect_flood_wait();
+    let mut last_err = String::new();
+    let mut uploaded_file = None;
 
-    let client_clone = client.clone();
-    let mut upload_task = tokio::spawn(async move {
-        client_clone.upload_stream(&mut reader, file_size as usize, file_name).await
-    });
+    while attempt <= max_attempts {
+        if state.cancelled_transfers.read().await.contains(&tid) {
+            state.cancelled_transfers.write().await.remove(&tid);
+            bw_state.release_up(size);
+            return Err("Transfer cancelled".to_string());
+        }
 
-    let upload_result = {
-        tokio::select! {
-            res = &mut upload_task => {
-                if !tid.is_empty() {
-                    get_upload_cancellations().lock().unwrap().remove(&tid);
-                }
-                res.map_err(|e| {
-                    bw_state.release_up(size);
-                    format!("Task join error: {}", e)
-                })?
-            }
-            _ = cancel_rx => {
-                log::info!("Aborting upload task for transfer ID: {}", tid);
-                upload_task.abort();
-                state.cancelled_transfers.write().await.remove(&tid);
-                if let Some(t) = progress_task { t.abort(); }
+        // Create progress-tracking reader
+        let (mut reader, file_size, bytes_counter) = match ProgressReader::new(&path, limit).await {
+            Ok(res) => res,
+            Err(e) => {
                 bw_state.release_up(size);
-                return Err("Transfer cancelled".to_string());
+                return Err(e);
+            }
+        };
+
+        // Spawn a progress reporter task that emits events every 250ms
+        let cancelled = state.cancelled_transfers.clone();
+        let progress_tid = tid.clone();
+        let progress_handle = app_handle.clone();
+        let progress_counter = bytes_counter.clone();
+        let progress_task = if !tid.is_empty() {
+            Some(tokio::spawn(async move {
+                let mut last_bytes: u64 = 0;
+                let mut last_time = std::time::Instant::now();
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    let current = progress_counter.load(std::sync::atomic::Ordering::Relaxed);
+                    let now = std::time::Instant::now();
+                    let dt = now.duration_since(last_time).as_secs_f64();
+                    let speed = if dt > 0.0 { ((current - last_bytes) as f64 / dt) as u64 } else { 0 };
+                    let percent = if file_size > 0 { ((current as f64 / file_size as f64) * 100.0).min(99.0) as u8 } else { 0 };
+
+                    let _ = progress_handle.emit("upload-progress", ProgressPayload {
+                        id: progress_tid.clone(), percent, uploaded_bytes: current, total_bytes: file_size, speed_bytes_per_sec: speed,
+                    });
+
+                    last_bytes = current;
+                    last_time = now;
+
+                    if current >= file_size { break; }
+                    if cancelled.read().await.contains(&progress_tid) { break; }
+                }
+            }))
+        } else {
+            None
+        };
+
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        if !tid.is_empty() {
+            get_upload_cancellations().lock().unwrap().insert(tid.clone(), cancel_tx);
+        }
+
+        let client_clone = client.clone();
+        let name_clone = file_name.clone();
+        let mut upload_task = tokio::spawn(async move {
+            client_clone.upload_stream(&mut reader, file_size as usize, name_clone).await
+        });
+
+        let upload_result = {
+            tokio::select! {
+                res = &mut upload_task => {
+                    if !tid.is_empty() {
+                        get_upload_cancellations().lock().unwrap().remove(&tid);
+                    }
+                    res.map_err(|e| format!("Task join error: {}", e))
+                }
+                _ = cancel_rx => {
+                    log::info!("Aborting upload task for transfer ID: {}", tid);
+                    upload_task.abort();
+                    state.cancelled_transfers.write().await.remove(&tid);
+                    if let Some(t) = progress_task { t.abort(); }
+                    bw_state.release_up(size);
+                    return Err("Transfer cancelled".to_string());
+                }
+            }
+        };
+
+        if let Some(t) = progress_task { t.abort(); }
+
+        match upload_result {
+            Ok(Ok(file)) => {
+                uploaded_file = Some(file);
+                break;
+            }
+            Ok(Err(e)) => {
+                let err = map_error(e);
+                log::warn!("upload_stream attempt {}/{}: {}", attempt + 1, max_attempts + 1, err);
+                last_err = err.clone();
+
+                if respect_flood && err.starts_with("FLOOD_WAIT_") {
+                    if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        let wait = secs.min(300);
+                        log::info!("Respecting FLOOD_WAIT for upload: sleeping {}s", wait);
+                        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                        attempt += 1;
+                        continue;
+                    }
+                }
+
+                if attempt < max_attempts {
+                    let delay = backoff_ms(attempt, base_ms, max_ms);
+                    log::info!("Retrying upload in {}ms...", delay);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
+            }
+            Err(e) => {
+                log::warn!("upload_stream task failed attempt {}/{}: {}", attempt + 1, max_attempts + 1, e);
+                last_err = e;
+                if attempt < max_attempts {
+                    let delay = backoff_ms(attempt, base_ms, max_ms);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
             }
         }
+
+        attempt += 1;
+    }
+
+    let uploaded_file = match uploaded_file {
+        Some(f) => f,
+        None => {
+            bw_state.release_up(size);
+            return Err(format!("Upload failed after {} attempts: {}", max_attempts + 1, last_err));
+        }
     };
-
-    // Stop progress reporter
-    if let Some(t) = progress_task { t.abort(); }
-
-    let uploaded_file = upload_result.map_err(map_error)?;
     let message = InputMessage::new().text("").file(uploaded_file);
 
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
@@ -2357,60 +2467,7 @@ pub async fn cmd_upload_from_url(
         total_bytes: actual_size,
     });
 
-    let (mut reader, file_size, bytes_counter) = match ProgressReader::new(&temp_file_str).await {
-        Ok(res) => res,
-        Err(e) => {
-            bw_state.release_up(actual_size);
-            let _ = tokio::fs::remove_file(&temp_file_path).await;
-            return Err(e);
-        }
-    };
-
-    let cancelled = state.cancelled_transfers.clone();
-    let progress_tid = transfer_id.clone();
-    let progress_handle = app_handle.clone();
-    let progress_counter = bytes_counter.clone();
-    let progress_task = tokio::spawn(async move {
-        let mut last_bytes: u64 = 0;
-        let mut last_time = std::time::Instant::now();
-        loop {
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-            let current = progress_counter.load(std::sync::atomic::Ordering::Relaxed);
-            let now = std::time::Instant::now();
-            let dt = now.duration_since(last_time).as_secs_f64();
-            let speed = if dt > 0.0 { ((current - last_bytes) as f64 / dt) as u64 } else { 0 };
-            let percent = if file_size > 0 { ((current as f64 / file_size as f64) * 100.0).min(99.0) as u8 } else { 0 };
-
-            let _ = progress_handle.emit("remote-upload-progress", RemoteProgressPayload {
-                id: progress_tid.clone(),
-                phase: "uploading",
-                percent,
-                speed,
-                uploaded_bytes: current,
-                total_bytes: file_size,
-            });
-
-            last_bytes = current;
-            last_time = now;
-
-            if current >= file_size { break; }
-            if cancelled.read().await.contains(&progress_tid) { break; }
-        }
-    });
-
-    if state.cancelled_transfers.read().await.contains(&transfer_id) {
-        state.cancelled_transfers.write().await.remove(&transfer_id);
-        progress_task.abort();
-        bw_state.release_up(actual_size);
-        let _ = tokio::fs::remove_file(&temp_file_path).await;
-        return Err("Transfer cancelled".to_string());
-    }
-
-    let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
-    get_upload_cancellations().lock().unwrap().insert(transfer_id.clone(), cancel_tx);
-
-    let client_clone = client.clone();
-    let file_name = server_filename.unwrap_or_else(|| {
+    let file_name = server_filename.clone().unwrap_or_else(|| {
         reqwest::Url::parse(&url)
             .ok()
             .and_then(|u| {
@@ -2421,44 +2478,151 @@ pub async fn cmd_upload_from_url(
             })
             .unwrap_or_else(|| "remote_file".to_string())
     });
-    
-    let mut upload_task = tokio::spawn(async move {
-        client_clone.upload_stream(&mut reader, file_size as usize, file_name).await
-    });
 
-    let uploaded_file = {
-        tokio::select! {
-            res = &mut upload_task => {
-                get_upload_cancellations().lock().unwrap().remove(&transfer_id);
-                match res {
-                    Ok(Ok(file)) => file,
-                    Ok(Err(e)) => {
-                        bw_state.release_up(actual_size);
-                        progress_task.abort();
-                        let _ = tokio::fs::remove_file(&temp_file_path).await;
-                        return Err(map_error(e));
-                    }
-                    Err(e) => {
-                        bw_state.release_up(actual_size);
-                        progress_task.abort();
-                        let _ = tokio::fs::remove_file(&temp_file_path).await;
-                        return Err(format!("Task join error: {}", e));
-                    }
-                }
-            }
-            _ = cancel_rx => {
-                log::info!("Aborting remote upload task for transfer ID: {}", transfer_id);
-                upload_task.abort();
-                state.cancelled_transfers.write().await.remove(&transfer_id);
-                progress_task.abort();
+    let mut limit = 0;
+    let user_limit = net_config.upload_limit_bytes_per_sec();
+    if user_limit > 0 {
+        limit = user_limit;
+    }
+    if actual_size > 2 * 1024 * 1024 * 1024 {
+        let auto_throttle = 5 * 1024 * 1024; // 5 MB/s
+        limit = if limit > 0 { limit.min(auto_throttle) } else { auto_throttle };
+        log::info!("Remote file size is > 2GB ({} bytes). Auto-throttling upload speed to 5 MB/s.", actual_size);
+    }
+
+    let mut attempt = 0;
+    let max_attempts = net_config.retry_attempts();
+    let respect_flood = net_config.should_respect_flood_wait();
+    let base_ms = net_config.retry_base_backoff_ms();
+    let max_ms = net_config.retry_max_backoff_ms();
+    let mut last_err = String::new();
+    let mut uploaded_file = None;
+
+    while attempt <= max_attempts {
+        if state.cancelled_transfers.read().await.contains(&transfer_id) {
+            state.cancelled_transfers.write().await.remove(&transfer_id);
+            bw_state.release_up(actual_size);
+            let _ = tokio::fs::remove_file(&temp_file_path).await;
+            return Err("Transfer cancelled".to_string());
+        }
+
+        let (mut reader, file_size, bytes_counter) = match ProgressReader::new(&temp_file_str, limit).await {
+            Ok(res) => res,
+            Err(e) => {
                 bw_state.release_up(actual_size);
                 let _ = tokio::fs::remove_file(&temp_file_path).await;
-                return Err("Transfer cancelled".to_string());
+                return Err(e);
+            }
+        };
+
+        let cancelled = state.cancelled_transfers.clone();
+        let progress_tid = transfer_id.clone();
+        let progress_handle = app_handle.clone();
+        let progress_counter = bytes_counter.clone();
+        let progress_task = tokio::spawn(async move {
+            let mut last_bytes: u64 = 0;
+            let mut last_time = std::time::Instant::now();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                let current = progress_counter.load(std::sync::atomic::Ordering::Relaxed);
+                let now = std::time::Instant::now();
+                let dt = now.duration_since(last_time).as_secs_f64();
+                let speed = if dt > 0.0 { ((current - last_bytes) as f64 / dt) as u64 } else { 0 };
+                let percent = if file_size > 0 { ((current as f64 / file_size as f64) * 100.0).min(99.0) as u8 } else { 0 };
+
+                let _ = progress_handle.emit("remote-upload-progress", RemoteProgressPayload {
+                    id: progress_tid.clone(),
+                    phase: "uploading",
+                    percent,
+                    speed,
+                    uploaded_bytes: current,
+                    total_bytes: file_size,
+                });
+
+                last_bytes = current;
+                last_time = now;
+
+                if current >= file_size { break; }
+                if cancelled.read().await.contains(&progress_tid) { break; }
+            }
+        });
+
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        get_upload_cancellations().lock().unwrap().insert(transfer_id.clone(), cancel_tx);
+
+        let client_clone = client.clone();
+        let name_clone = file_name.clone();
+        let mut upload_task = tokio::spawn(async move {
+            client_clone.upload_stream(&mut reader, file_size as usize, name_clone).await
+        });
+
+        let upload_result = {
+            tokio::select! {
+                res = &mut upload_task => {
+                    get_upload_cancellations().lock().unwrap().remove(&transfer_id);
+                    res.map_err(|e| format!("Task join error: {}", e))
+                }
+                _ = cancel_rx => {
+                    log::info!("Aborting remote upload task for transfer ID: {}", transfer_id);
+                    upload_task.abort();
+                    state.cancelled_transfers.write().await.remove(&transfer_id);
+                    progress_task.abort();
+                    bw_state.release_up(actual_size);
+                    let _ = tokio::fs::remove_file(&temp_file_path).await;
+                    return Err("Transfer cancelled".to_string());
+                }
+            }
+        };
+
+        progress_task.abort();
+
+        match upload_result {
+            Ok(Ok(file)) => {
+                uploaded_file = Some(file);
+                break;
+            }
+            Ok(Err(e)) => {
+                let err = map_error(e);
+                log::warn!("Remote upload_stream attempt {}/{}: {}", attempt + 1, max_attempts + 1, err);
+                last_err = err.clone();
+
+                if respect_flood && err.starts_with("FLOOD_WAIT_") {
+                    if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        let wait = secs.min(300);
+                        log::info!("Respecting FLOOD_WAIT for remote upload: sleeping {}s", wait);
+                        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                        attempt += 1;
+                        continue;
+                    }
+                }
+
+                if attempt < max_attempts {
+                    let delay = backoff_ms(attempt, base_ms, max_ms);
+                    log::info!("Retrying remote upload in {}ms...", delay);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
+            }
+            Err(e) => {
+                log::warn!("Remote upload_stream task failed attempt {}/{}: {}", attempt + 1, max_attempts + 1, e);
+                last_err = e;
+                if attempt < max_attempts {
+                    let delay = backoff_ms(attempt, base_ms, max_ms);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
             }
         }
-    };
 
-    progress_task.abort();
+        attempt += 1;
+    }
+
+    let uploaded_file = match uploaded_file {
+        Some(f) => f,
+        None => {
+            bw_state.release_up(actual_size);
+            let _ = tokio::fs::remove_file(&temp_file_path).await;
+            return Err(format!("Remote upload failed after {} attempts: {}", max_attempts + 1, last_err));
+        }
+    };
 
     let message = InputMessage::new().text("").file(uploaded_file);
 

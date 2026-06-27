@@ -162,7 +162,10 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
             // Clean up temp zip even on failure
             await cleanupTempZip(item);
         } finally {
+            // ponytail: 2s cooldown to prevent Telegram flooding
+            await new Promise(resolve => setTimeout(resolve, 2000));
             activeCountRef.current--;
+            setUploadQueue(q => [...q]); // trigger queue effect to check for next item
         }
     };
 

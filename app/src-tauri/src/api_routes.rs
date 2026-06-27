@@ -6,6 +6,7 @@ use actix_web::web::Bytes;
 use std::task::{Context, Poll};
 use crate::commands::TelegramState;
 use crate::commands::utils::{resolve_peer, map_error};
+use crate::commands::fs::ProgressReader;
 use crate::commands::{create_folder_inner, delete_folder_inner, rename_folder_inner};
 use crate::commands::preview::THUMBNAIL_EXTS;
 use crate::models::FolderMetadata;
@@ -1196,22 +1197,72 @@ async fn api_upload_file(
         }
     };
 
-    let mut open_file = match tokio::fs::File::open(&temp_path).await {
-        Ok(f) => f,
-        Err(e) => {
-            bw_manager.release_up(file_size);
-            let _ = tokio::fs::remove_file(&temp_path).await;
-            return json_error("OPEN_ERROR", &e.to_string(), 500);
-        }
-    };
+    let mut limit = 0;
+    let user_limit = net_config.upload_limit_bytes_per_sec();
+    if user_limit > 0 {
+        limit = user_limit;
+    }
+    if file_size > 2 * 1024 * 1024 * 1024 {
+        let auto_throttle = 5 * 1024 * 1024; // 5 MB/s
+        limit = if limit > 0 { limit.min(auto_throttle) } else { auto_throttle };
+        log::info!("API File upload is > 2GB ({} bytes). Auto-throttling to 5 MB/s.", file_size);
+    }
 
-    let upload_res = client.upload_stream(&mut open_file, file_size as usize, filename.clone()).await;
-    let uploaded_file = match upload_res {
-        Ok(uf) => uf,
-        Err(e) => {
+    let mut attempt = 0;
+    let max_attempts = net_config.retry_attempts();
+    let respect_flood = net_config.should_respect_flood_wait();
+    let base_ms = net_config.retry_base_backoff_ms();
+    let max_ms = net_config.retry_max_backoff_ms();
+    let mut last_err = String::new();
+    let mut uploaded_file = None;
+
+    while attempt <= max_attempts {
+        let (mut open_file, _, _) = match ProgressReader::new(temp_path.to_str().unwrap(), limit).await {
+            Ok(res) => res,
+            Err(e) => {
+                bw_manager.release_up(file_size);
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return json_error("OPEN_ERROR", &e.to_string(), 500);
+            }
+        };
+
+        match client.upload_stream(&mut open_file, file_size as usize, filename.clone()).await {
+            Ok(uf) => {
+                uploaded_file = Some(uf);
+                break;
+            }
+            Err(e) => {
+                let err = map_error(e);
+                log::warn!("API upload_stream attempt {}/{}: {}", attempt + 1, max_attempts + 1, err);
+                last_err = err.clone();
+
+                if respect_flood && err.starts_with("FLOOD_WAIT_") {
+                    if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        let wait = secs.min(300);
+                        log::info!("Respecting FLOOD_WAIT for API upload: sleeping {}s", wait);
+                        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                        attempt += 1;
+                        continue;
+                    }
+                }
+
+                if attempt < max_attempts {
+                    let delay = crate::vpn_optimizer::backoff_ms(attempt, base_ms, max_ms);
+                    log::info!("Retrying API upload in {}ms...", delay);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                }
+            }
+        }
+
+        attempt += 1;
+    }
+
+    let uploaded_file = match uploaded_file {
+        Some(uf) => uf,
+        None => {
             bw_manager.release_up(file_size);
             let _ = tokio::fs::remove_file(&temp_path).await;
-            return json_error("UPLOAD_FAILED", &map_error(e), 500);
+            return json_error("UPLOAD_FAILED", &format!("Upload failed after {} attempts: {}", max_attempts + 1, last_err), 500);
         }
     };
 

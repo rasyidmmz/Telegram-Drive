@@ -76,7 +76,7 @@ pub fn cmd_get_bandwidth(bw_state: State<'_, Arc<BandwidthManager>>) -> crate::b
 
 pub fn map_error(e: impl std::fmt::Display) -> String {
     let err_str = e.to_string();
-    if err_str.contains("FLOOD_WAIT") {
+    if err_str.contains("FLOOD_WAIT") || err_str.contains("FLOOD_PREMIUM_WAIT") {
         // Expected format: ... (value: 1234)
         if let Some(start) = err_str.find("(value: ") {
              let rest = &err_str[start + 8..];
