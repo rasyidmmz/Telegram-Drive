@@ -1126,6 +1126,7 @@ pub async fn initiate_upload(
     bw_state: State<'_, Arc<BandwidthManager>>,
     net_config: State<'_, std::sync::Arc<NetworkConfig>>,
 ) -> Result<String, String> {
+    #[cfg(target_os = "android")]
     crate::upload_service::start_foreground_service();
     cmd_upload_file(
         path,
