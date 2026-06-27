@@ -2,6 +2,7 @@ use tauri::{State, Emitter};
 use std::sync::Arc;
 use grammers_client::types::{Media, Peer};
 use grammers_client::InputMessage;
+use grammers_tl_types as tl;
 use crate::TelegramState;
 use crate::models::{FolderMetadata, FileMetadata};
 use crate::bandwidth::BandwidthManager;
