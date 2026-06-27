@@ -50,6 +50,17 @@ This document specifies the design for cleaning up the codebase to target Window
     * `"windows_autostart": "Jalankan saat Windows Dimulai"`
     * `"windows_autostart_desc": "Mulai Telegram Drive secara otomatis saat Windows boot"`
 
+### 2.3 Video Upload & Streaming Optimizations
+#### Local Video Metadata Extraction & Attributes
+* When uploading a local file, check if it is a video (e.g. `.mp4`).
+* If it is a video, read the first 2 MB of the local file and parse its duration, width, and height using our existing Rust MP4 parsing helpers (`parse_mp4_metadata` and `mp4_utils::scan_video_tkhd_dimensions`).
+* When constructing the media payload for Telegram, include the `DocumentAttribute::Video` containing the parsed duration and resolution.
+* This ensures that Telegram records the file as a video natively, and folder listings load video metadata instantly without needing to fetch 2 MB chunks on-demand.
+
+#### Fast-Start (moov) Relocation Verification
+* Inspect the MP4 structure during upload to check if the `moov` atom is at the beginning of the file (required for instant streaming).
+* If the `moov` atom is at the end, write a warning log or automatically relocate the `moov` atom to the beginning before uploading, ensuring smooth playbacks after the local file is deleted.
+
 ---
 
 ## 3. Verification Plan
@@ -57,3 +68,4 @@ This document specifies the design for cleaning up the codebase to target Window
 1. Open Settings, toggle "Launch on Windows Startup" to enabled, and verify that the registry key `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\TelegramDrive` points to the executable path.
 2. Toggle "Launch on Windows Startup" to disabled, and verify that the registry key is deleted.
 3. Verify that settings persistence still works (restarting the app preserves the state of the toggle).
+4. Upload an MP4 video, then delete the local file. Verify that the video's duration and resolution appear in the dashboard folder listing instantly without any network delay, and verify that it plays back smoothly.
