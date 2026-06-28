@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.12] - 2026-06-28
+
+### Video Metadata
+
+- Enabled the existing backend MKV metadata parser from the desktop file metadata badges.
+- Bumped the Windows-only release package to `1.9.12`.
+
+---
+
 ## [1.9.11] - 2026-06-28
 
 ### Planning & Upload Messaging
