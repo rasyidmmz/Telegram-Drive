@@ -199,7 +199,7 @@ fn cmd_get_system_diagnostics(
 ) -> Result<String, String> {
     let mut lines: Vec<String> = Vec::new();
 
-    lines.push("=== Telegram Drive Diagnostics ===".into());
+    lines.push("=== Teledrive Diagnostics ===".into());
     lines.push(format!("Package: {}", env!("CARGO_PKG_NAME")));
     lines.push(format!("Version: {}", env!("CARGO_PKG_VERSION")));
 

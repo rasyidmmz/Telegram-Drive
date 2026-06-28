@@ -1,8 +1,8 @@
 [package]
-name = "app"
-version = "1.9.12"
-description = "Turn your Telegram account into an unlimited, secure cloud storage drive. an Open-source desktop app built with Tauri, Rust, and React."
-authors = ["Cameron Amer"]
+name = "teledrive"
+version = "1.9.13"
+description = "Windows 11 x64 Telegram-backed media and file drive."
+authors = ["rasyidmmz"]
 edition = "2021"
 
 

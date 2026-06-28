@@ -1,6 +1,6 @@
 {
   "common": {
-    "app_title": "Telegram Drive",
+    "app_title": "Teledrive",
     "logout": "Log Out",
     "search_placeholder": "Search files...",
     "sync": "Sync",
@@ -97,7 +97,7 @@
     "performance_mode": "Performance Mode",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
     "windows_autostart": "Launch on Windows Startup",
-    "windows_autostart_desc": "Start Telegram Drive automatically when Windows boots",
+    "windows_autostart_desc": "Start Teledrive automatically when Windows boots",
     "language_region": "Language & Region",
     "app_language": "Application Language",
     "choose_language": "Choose your preferred language",

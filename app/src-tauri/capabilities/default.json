@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Standard permissions for Telegram Drive",
+  "description": "Standard permissions for Teledrive",
   "windows": [
     "main"
   ],

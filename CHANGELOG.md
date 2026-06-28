@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.9.13] - 2026-06-28
+
+### Teledrive Fork Identity
+
+- Renamed the Windows app identity from Telegram Drive to Teledrive.
+- Changed the Tauri bundle identifier to `com.rasyidmmz.teledrive` so it can install beside the upstream app.
+- Updated the Windows autostart registry value to `Teledrive` and clean up the old `TelegramDrive` value.
+- Updated README documentation to describe this fork's Windows-only scope and changes from upstream.
+
+---
+
 ## [1.9.12] - 2026-06-28
 
 ### Video Metadata

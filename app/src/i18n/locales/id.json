@@ -1,6 +1,6 @@
 {
   "common": {
-    "app_title": "Telegram Drive",
+    "app_title": "Teledrive",
     "logout": "Keluar",
     "search_placeholder": "Cari berkas...",
     "sync": "Sinkronisasi",
@@ -84,7 +84,7 @@
     "zip_folders_desc": "Compress folders into .zip before uploading",
     "performance_compatibility": "Performance & Compatibility",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
-    "windows_autostart_desc": "Mulai Telegram Drive secara otomatis saat Windows boot",
+    "windows_autostart_desc": "Mulai Teledrive secara otomatis saat Windows boot",
     "language_region": "Language & Region",
     "app_language": "Application Language",
     "choose_language": "Choose your preferred language",

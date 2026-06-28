@@ -1,195 +1,137 @@
-# Telegram Drive
+# Teledrive
 
-**Telegram Drive** is an open-source, cross-platform desktop application that turns
-your Telegram account into an unlimited, secure cloud storage drive. Built with
-**Tauri**, **Rust**, and **React**.
+**Teledrive** is a Windows 11 64-bit fork of Telegram Drive focused on using
+Telegram as a personal media and file drive, with better video playback,
+upload reliability, and a Windows-only release pipeline.
 
-<div align="center">
+This fork is intentionally renamed from the upstream **Telegram Drive** app so
+it can be installed on the same machine without colliding with the original
+application.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20MacOS%20%7C%20Linux-blue)]()
-![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/caamer20/Telegram-Drive/total?style=flat)
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/ae8e5a6b-e815-4799-a408-4a59980cf9c8.svg)](https://oosmetrics.com/repo/caamer20/Telegram-Drive)
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/029fb97b-a54a-4566-a1eb-aa1a5039065d.svg)](https://oosmetrics.com/repo/caamer20/Telegram-Drive)
-[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/2aa6f3f9-fd8a-4523-bd73-6625ee6a948a.svg)](https://oosmetrics.com/repo/caamer20/Telegram-Drive)
+## Install Identity
 
-</div>
+Teledrive uses its own Windows/Tauri identity:
 
-![Auth Screen](screenshots/AuthScreen.png)
+- Product name: `Teledrive`
+- Tauri identifier: `com.rasyidmmz.teledrive`
+- Windows autostart registry value: `Teledrive`
+- GitHub updater feed: `rasyidmmz/Telegram-Drive`
+- Release target: Windows NSIS installer only
 
-##  What is Telegram Drive?
+When autostart is toggled, Teledrive also removes the old `TelegramDrive`
+startup entry so older fork builds do not start alongside the renamed app.
 
-Telegram Drive leverages the Telegram API to allow you to upload, organize, and manage files directly on Telegram's servers. It treats your "Saved Messages" and created Channels as folders, giving you a familiar file explorer interface for your Telegram cloud.
+## What Changed From Upstream
 
-###  Key Features
+This fork keeps the core Telegram storage model from the original project:
+Saved Messages and Telegram channels are used as folders, while files are
+managed from a desktop file explorer UI.
 
-*   **Unlimited Cloud Storage**: Utilizing Telegram's generous cloud infrastructure.
-*   **High Performance Grid**: Virtual scrolling handles folders with thousands of files instantly.
-*   **Auto-Updates**: Seamless updates for Windows, macOS, and Linux.
-*   **Media Streaming**: Stream video and audio files directly without downloading.
-*   **PDF Viewer:** Built-in PDF support with infinite scrolling for seamless document reading.
-*   **Drag & Drop**: Intuitive drag-and-drop upload and file management.
-*   **Thumbnail Previews**: Inline thumbnails for images and media files.
-*   **Folder Management**: Create "Folders" (private Telegram Channels) to organize content.
-*   **Shareable Links**: Generate direct download links with optional password protection and expiration, and revoke access anytime from the dashboard. Also supports copying native Telegram message links for files in public channels.
-*   **REST API for AI Integration**: Secure local API (off by default) with configurable port and API key auth. OpenAPI spec for seamless LLM and tool integration.
-*   **Proxy Support**: Native integration for SOCKS5 and MTProto proxies to bypass regional restrictions and secure your traffic.
-*   **VPN Optimizer**: Aggressive network tuning including bandwidth throttling, adjustable transfer chunk sizing, and adaptive keep-alives to ensure maximum stability on high-latency connections.
-*   **Privacy Focused**: API keys and data stay local. No third-party servers.
-*   **Cross-Platform**: Native apps for macOS (Intel/ARM), Windows, Linux and Android.
+Main differences:
 
-## Android (Pre‑built, Unsigned APK)
+- Windows 11 x64 only. Android, iOS, macOS, and Linux release paths were removed
+  from the active build.
+- App branding and installer identity were changed to `Teledrive`.
+- The release workflow builds only the Windows NSIS installer.
+- MPV is bundled as a sidecar so HEVC/H.265 video playback does not depend on
+  the browser video codec stack.
+- Video files open through MPV using the local stream endpoint.
+- `.mp4` and `.mkv` metadata probing is available for upload diagnostics and
+  desktop metadata badges.
+- Upload reliability was improved with queue cooldown, retry/backoff handling,
+  `FLOOD_WAIT` sleep behavior, and bandwidth throttling.
+- Telegram's single-file upload limit is handled with a clear error message.
+  Automatic split-file upload is not in `main` yet.
+- Windows startup support was added through
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+- Android-only JNI and foreground-service code was removed.
+- Mobile-only Tauri capability configuration was removed.
 
-A pre-built **unsigned APK** is available for Android sideloading via the [v2.1.5-android release](https://github.com/caamer20/Telegram-Drive/releases/tag/Androidv2.1.5beta).
+## Current Video Scope
 
-> [!WARNING]
-> This APK is **not signed** and is **not available on the Google Play Store**. You must enable "Install from Unknown Sources" on your device to install it. This build contains **Google AdMob banner ads** to support development.
+Teledrive is optimized for personal `.mp4` and `.mkv` movie files, including
+HEVC/H.265 content.
 
-### How to Sideload
+Current behavior:
 
-1. Download `Telegram-Drive-v2.1.5-beta.apk` from the [v2.1.5-android release](https://github.com/caamer20/Telegram-Drive/releases/tag/Androidv2.1.5beta).
-2. On your Android device, go to **Settings → Apps → Special App Access → Install unknown apps** and allow your browser or file manager.
-3. Open the downloaded APK and tap **Install**.
-4. Enter your Telegram API credentials on first launch (same as the desktop app).
+- Normal-size MP4/MKV files can be uploaded through the current upload flow.
+- Local metadata probing logs MP4/MKV duration and resolution when available.
+- Desktop file cards can show MP4/MKV duration and resolution badges.
+- Playback prefers MPV through the local stream server.
 
-> [!NOTE]
-> - **Compatibility**: Requires **Android 7.0 (API level 24)** or higher.
-> - **Android 15+ Installation**: If you encounter blocks or security restrictions when installing on Android 15+ emulator/device, bypass it using ADB:
->   ```bash
->   adb install --bypass-low-target-sdk-block Telegram-Drive-v2.1.5-beta.apk
->   ```
-> - The Android build is a **community/beta release** compiled locally. The desktop app (Windows/macOS/Linux) remains the primary supported platform, built and signed automatically by GitHub CI.
+Large files above Telegram's single-file limit are still blocked in `main`.
+The planned split-file design lives separately in the
+`codex/large-file-parts-upload` branch and is not part of the stable Windows
+release yet.
 
----
+## Features
 
-##  Screenshots
+- Telegram-backed file storage using Saved Messages and private channels.
+- Folder creation and management.
+- Drag-and-drop uploads.
+- Upload and download queues.
+- Retry/backoff controls for unstable connections.
+- Automatic `FLOOD_WAIT` handling.
+- Upload/download bandwidth throttles.
+- MPV-based video/audio playback.
+- MP4/MKV metadata badges.
+- PDF preview.
+- Shareable links with optional protection.
+- Local REST API for automation and tool integration.
+- SOCKS5 proxy support.
+- VPN-oriented timeout, polling, keep-alive, and peer-cache settings.
+- Windows autostart toggle.
+- Windows-only updater artifacts.
 
-### Desktop App
+## Download
 
-| Dashboard | File Preview |
-|-----------|--------------|
-| ![Dashboard](screenshots/DashboardWithFiles.png) | ![Preview](screenshots/ImagePreview.png) |
+Use the latest Windows installer from this fork's releases:
 
-| Grid View | Authentication |
-|-----------|----------------|
-| ![Dark Mode](screenshots/DarkModeGrid.png) | ![Login](screenshots/LoginScreen.png) |
+https://github.com/rasyidmmz/Telegram-Drive/releases/latest
 
-| Audio Playback | Video Playback |
-|----------------|----------------|
-| ![Audio Playback](screenshots/AudioPlayback.png) | ![Video Playback](screenshots/VideoPlayback.png) |
+The expected release assets are:
 
-| Auth Code Screen | Upload Example |
-|------------------|-------------|
-| ![Auth Code Screen](screenshots/AuthCodeScreen.png) | ![Upload Example](screenshots/UploadExample.png) |
+- `Teledrive_<version>_x64-setup.exe`
+- `Teledrive_<version>_x64-setup.exe.sig`
+- `latest.json`
 
-| Folder Creation | Folder List View |
-|-----------------|------------------|
-| ![Folder Creation](screenshots/FolderCreation.png) | ![Folder List View](screenshots/FolderListView.png) |
-
-### Android App
-
-| Home Screen | Splash Screen | Dark Mode Folder View |
-|-------------|---------------|-----------------------|
-| ![Home Screen](screenshots/AndroidHomeScreenWithIcon.png) | ![Splash Screen](screenshots/AndroidTelegram-DriveSplash.png) | ![Dark Mode Folder View](screenshots/AndroidDarkModeFolderView.png) |
-
-| Folder List | Transfer Queue | Settings Page |
-|-------------|----------------|---------------|
-| ![Folder List](screenshots/AndroidFolderList.png) | ![Transfer Queue](screenshots/AndroidTransferQue.png) | ![Settings Page](screenshots/AndroidSettingsPage.png) |
-
-##  Tech Stack
-
-*   **Frontend**: React, TypeScript, TailwindCSS, Framer Motion
-*   **Backend**: Rust (Tauri), Grammers (Telegram Client)
-*   **Build Tool**: Vite
-
-
-##  Getting Started
+## Build From Source
 
 ### Prerequisites
 
-*   **Node.js (v18+)**: [Download here](https://nodejs.org/)
-*   **Rust (latest stable)**: Required to compile the Tauri backend. Install via [rustup](https://rustup.rs/):
-    *   **macOS/Linux:** `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
-    *   **Windows:** Download and run `rustup-init.exe` from [rustup.rs](https://rustup.rs/)
-    *   *Verify installation:* run `rustc --version` and `cargo --version` in your terminal.
-*   **OS-Specific Build Tools for Tauri**: 
-    *   **macOS:** Xcode Command Line Tools (`xcode-select --install`).
-    *   **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
-    *   **Windows (CRITICAL):** You **must** install the [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/). During installation, select the **"Desktop development with C++"** workload. Without this, you will get a `linker 'link.exe' not found` error.
-    *   **Windows (WebView2):** Windows 10/11 users usually have this pre-installed. If not, download the [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section).
-    *   *Reference:* See the official [Tauri v2 Prerequisites Guide](https://v2.tauri.app/start/prerequisites/) for detailed instructions.
-*   **Telegram API Credentials**: You need your own API ID and API Hash to communicate with Telegram's servers.
-    1. Log into [my.telegram.org](https://my.telegram.org).
-    2. Go to "API development tools" and create a new application to get your `api_id` and `api_hash`.
+- Windows 11 64-bit
+- Node.js 18+
+- Rust stable
+- Visual Studio Build Tools with **Desktop development with C++**
+- Microsoft Edge WebView2 Runtime
+- Telegram API ID and API Hash from https://my.telegram.org
 
-> [!NOTE]  
-> **First-run Compile Time:** The initial build (`npm run tauri dev` or `npm run tauri build`) will download and compile over 300 Rust crates. This process can take **5 to 15 minutes** depending on your hardware. Subsequent builds will be much faster.
+### Commands
 
-> [!TIP]
-> **NPM Vulnerabilities:** You may see vulnerability warnings during `npm install`. These are usually related to build tools and dev dependencies. You can optionally run `npm audit fix`, but it is not strictly required to run the app.
+```powershell
+git clone https://github.com/rasyidmmz/Telegram-Drive.git
+cd Telegram-Drive\app
+npm install
+npm run tauri dev
+```
 
-### Installation
+Build the installer:
 
-1.  **Clone the repository**
-    ```bash
-    git clone https://github.com/caamer20/Telegram-Drive.git
-    cd Telegram-Drive
-    ```
+```powershell
+npm run tauri build
+```
 
-2.  **Install Dependencies**
-    ```bash
-    cd app
-    npm install
-    ```
+## Repository Notes
 
-3.  **Run in Development Mode**
-    ```bash
-    npm run tauri dev
-    ```
+- `main` is the stable Windows-only branch.
+- `implementation_plan.md` tracks the current split between stable work and
+  the future large-file split/upload branch.
+- `codex/large-file-parts-upload` is reserved for the separate large-file parts
+  feature.
 
-4.  **Build/Compile**
-    ```bash
-    npm run tauri build
-    ```
+## License
 
-##  Open Source & License
+This fork keeps the upstream MIT license.
 
-This project is **Free and Open Source Software**. You are free to use, modify, and distribute it.
-
-Licensed under the **MIT License**.
-
----
-*Disclaimer: This application is not affiliated with Telegram FZ-LLC. Use responsibly and in accordance with Telegram's Terms of Service.*
-
-If you're looking for a version of this app that's optimized for VPNs check out this repo:
-https://github.com/caamer20/Telegram-Drive-ForVPNs
-
-<div align="center">
-  <!-- PayPal -->
-  <div style="margin: 15px 0;">
-    <a href="https://www.paypal.me/Caamer20">
-      <img src="https://raw.githubusercontent.com/stefan-niedermann/paypal-donate-button/master/paypal-donate-button.png" alt="Donate with PayPal" width="200">
-    </a>
-    <div style="font-size: 14px; margin-top: 8px;">paypal.me/Caamer20</div>
-  </div>
-
-  <!-- Litecoin -->
-  <div style="margin: 15px 0;">
-    <a href="litecoin:ltc1q6wkr5ac4u0pxx4hx7xgwn0gsaku25ws0df73rp">
-      <img src="https://img.shields.io/badge/Donate-LTC-345D9D?style=for-the-badge&logo=litecoin&logoColor=white" alt="Donate LTC">
-    </a>
-    <div style="font-family: monospace; font-size: 13px; margin-top: 8px; word-break: break-all;">
-      ltc1q6wkr5ac4u0pxx4hx7xgwn0gsaku25ws0df73rp
-    </div>
-  </div>
-
-  <!-- Bitcoin -->
-  <div style="margin: 15px 0;">
-    <a href="bitcoin:bc1q5pt7m2fk6w0dzsnf6vvd5k6nw5k44785286ujy">
-      <img src="https://img.shields.io/badge/Donate-BTC-F7931A?style=for-the-badge&logo=bitcoin&logoColor=white" alt="Donate BTC">
-    </a>
-    <div style="font-family: monospace; font-size: 13px; margin-top: 8px; word-break: break-all;">
-      bc1q5pt7m2fk6w0dzsnf6vvd5k6nw5k44785286ujy
-    </div>
-  </div>
-</div>
+Teledrive is not affiliated with Telegram FZ-LLC. Use it responsibly and in
+accordance with Telegram's Terms of Service.
