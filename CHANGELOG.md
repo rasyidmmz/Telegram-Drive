@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.14] - 2026-06-28
+
+### Release Branding
+
+- Updated the GitHub release workflow title from Telegram Drive to Teledrive.
+- Bumped the Windows installer release after the fork rename so release assets and release title match.
+
+---
+
 ## [1.9.13] - 2026-06-28
 
 ### Teledrive Fork Identity
