@@ -25,7 +25,7 @@ interface SidebarItemProps {
 
 /**
  * SidebarItem - Pure DOM event-based drop handling
- * 
+ *
  * With Tauri's dragDropEnabled: false, DOM events work reliably.
  * This component handles internal file moves via standard React drag events.
  * Right-click shows a context menu for folder management.

@@ -7,7 +7,6 @@ export interface Settings {
     autoUpdate: boolean;
     maxConcurrentUploads: number;
     maxConcurrentDownloads: number;
-    zipFolders: boolean;
     language: SupportedLanguage;
 
     // ── Proxy ──────────────────────────────────────────────
@@ -58,7 +57,6 @@ const defaultSettings: Settings = {
     autoUpdate: true,
     maxConcurrentUploads: 6,
     maxConcurrentDownloads: 6,
-    zipFolders: true,
     language: 'en',
 
     // Proxy — off by default

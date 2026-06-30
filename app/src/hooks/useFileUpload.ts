@@ -191,12 +191,6 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         }
     };
 
-    /** Queue files dropped from the OS file manager (drag-and-drop upload) */
-    const handleDropUpload = (paths: string[]) => {
-        if (!paths || paths.length === 0) return;
-        queueFiles(paths);
-    };
-
     const handleFolderUpload = async () => {
         const folderPath = await pickWithFallback(
             async () => {
@@ -213,7 +207,7 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
                     if (fallbackPaths.length > 0) {
                         // HTML folder picker returns individual file paths, not a folder path.
                         // We can't zip without a folder path, so files upload individually.
-                        toast.info('Folder zipping unavailable with browser picker — uploading files individually.');
+                        toast.info('Folder picker fallback cannot read the folder path, uploading files individually.');
                         queueFiles(fallbackPaths);
                     }
                     return null; // Already handled via queueFiles — signal that the main flow should stop
@@ -224,25 +218,21 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
 
         const folderName = folderPath.split('/').pop() || folderPath.split('\\').pop() || 'folder';
 
-        if (settings.zipFolders) {
-            toast.info(`Zipping "${folderName}"...`);
-            try {
-                const zipPath = await invoke<string>('cmd_zip_folder', { folderPath });
-                const item: QueueItem = {
-                    id: Math.random().toString(36).substr(2, 9),
-                    path: zipPath,
-                    folderId: activeFolderId,
-                    status: 'pending',
-                    tempZipPath: zipPath,
-                };
-                setUploadQueue(prev => [...prev, item]);
-                toast.success(`Queued "${folderName}.zip" for upload`);
-            } catch (e) {
-                console.error('[Upload] Zip error:', e);
-                toast.error(`Failed to zip folder: ${e}`);
-            }
-        } else {
-            toast.info(`Folder upload without zipping is not supported. Enable "Zip folders before upload" in Settings.`);
+        toast.info(`Zipping "${folderName}"...`);
+        try {
+            const zipPath = await invoke<string>('cmd_zip_folder', { folderPath });
+            const item: QueueItem = {
+                id: Math.random().toString(36).substr(2, 9),
+                path: zipPath,
+                folderId: activeFolderId,
+                status: 'pending',
+                tempZipPath: zipPath,
+            };
+            setUploadQueue(prev => [...prev, item]);
+            toast.success(`Queued "${folderName}.zip" for upload`);
+        } catch (e) {
+            console.error('[Upload] Zip error:', e);
+            toast.error(`Failed to zip folder: ${e}`);
         }
     };
 
@@ -308,7 +298,6 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
         setUploadQueue,
         handleManualUpload,
         handleFolderUpload,
-        handleDropUpload,
         handleUrlUpload,
         cancelAll,
         cancelItem,

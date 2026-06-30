@@ -65,7 +65,6 @@
   "settings": {
     "concurrent_uploads": "Unggahan Simultan",
     "concurrent_downloads": "Unduhan Simultan",
-    "zip_before_upload": "Kompres Folder Sebelum Diunggah",
     "performance_mode": "Mode Performa",
     "windows_autostart": "Jalankan saat Windows Dimulai",
     "rest_api": "REST API",
@@ -81,7 +80,6 @@
     "transfers": "Transfers",
     "max_uploads_desc": "Max parallel uploads",
     "max_downloads_desc": "Max parallel downloads",
-    "zip_folders_desc": "Compress folders into .zip before uploading",
     "performance_compatibility": "Performance & Compatibility",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
     "windows_autostart_desc": "Mulai Teledrive secara otomatis saat Windows boot",

@@ -65,7 +65,6 @@
   "settings": {
     "concurrent_uploads": "الرفع المتزامن",
     "concurrent_downloads": "التنزيل المتزامن",
-    "zip_before_upload": "ضغط المجلدات إلى ZIP قبل الرفع",
     "performance_mode": "وضع الأداء",
     "rest_api": "واجهة برمجة التطبيقات REST",
     "enable_api_server": "تمكين خادم API",
@@ -80,7 +79,6 @@
     "transfers": "Transfers",
     "max_uploads_desc": "Max parallel uploads",
     "max_downloads_desc": "Max parallel downloads",
-    "zip_folders_desc": "Compress folders into .zip before uploading",
     "performance_compatibility": "Performance & Compatibility",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
     "language_region": "Language & Region",

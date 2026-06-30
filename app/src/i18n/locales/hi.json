@@ -65,7 +65,6 @@
   "settings": {
     "concurrent_uploads": "समवर्ती अपलोड",
     "concurrent_downloads": "समवर्ती डाउनलोड",
-    "zip_before_upload": "अपलोड से पहले फ़ोल्डर्स को ज़िप करें",
     "performance_mode": "प्रदर्शन मोड",
     "rest_api": "रेस्ट एपीआई",
     "enable_api_server": "एपीआई सर्वर सक्षम करें",
@@ -80,7 +79,6 @@
     "transfers": "Transfers",
     "max_uploads_desc": "Max parallel uploads",
     "max_downloads_desc": "Max parallel downloads",
-    "zip_folders_desc": "Compress folders into .zip before uploading",
     "performance_compatibility": "Performance & Compatibility",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
     "language_region": "Language & Region",

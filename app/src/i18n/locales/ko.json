@@ -65,7 +65,6 @@
   "settings": {
     "concurrent_uploads": "동시 업로드 수",
     "concurrent_downloads": "동시 다운로드 수",
-    "zip_before_upload": "업로드 전 폴더 ZIP 압축",
     "performance_mode": "성능 모드",
     "rest_api": "REST API",
     "enable_api_server": "API 서버 활성화",
@@ -80,7 +79,6 @@
     "transfers": "Transfers",
     "max_uploads_desc": "Max parallel uploads",
     "max_downloads_desc": "Max parallel downloads",
-    "zip_folders_desc": "Compress folders into .zip before uploading",
     "performance_compatibility": "Performance & Compatibility",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
     "language_region": "Language & Region",

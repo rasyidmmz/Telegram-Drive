@@ -1266,7 +1266,7 @@ async fn api_upload_file(
         }
     };
 
-    let message = InputMessage::new().text("").file(uploaded_file);
+    let message = InputMessage::new().text(filename.clone()).file(uploaded_file);
 
     let max_retries = net_config.retry_attempts();
     let base_ms = net_config.retry_base_backoff_ms();

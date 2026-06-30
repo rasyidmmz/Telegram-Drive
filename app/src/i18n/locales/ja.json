@@ -65,7 +65,6 @@
   "settings": {
     "concurrent_uploads": "同時アップロード数",
     "concurrent_downloads": "同時ダウンロード数",
-    "zip_before_upload": "アップロード前にフォルダを ZIP 圧縮する",
     "performance_mode": "パフォーマンスモード",
     "rest_api": "REST API",
     "enable_api_server": "API サーバーを有効にする",
@@ -80,7 +79,6 @@
     "transfers": "Transfers",
     "max_uploads_desc": "Max parallel uploads",
     "max_downloads_desc": "Max parallel downloads",
-    "zip_folders_desc": "Compress folders into .zip before uploading",
     "performance_compatibility": "Performance & Compatibility",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
     "language_region": "Language & Region",

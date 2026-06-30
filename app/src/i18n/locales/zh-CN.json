@@ -65,7 +65,6 @@
   "settings": {
     "concurrent_uploads": "并发上传数",
     "concurrent_downloads": "并发下载数",
-    "zip_before_upload": "上传前压缩文件夹",
     "performance_mode": "性能模式",
     "rest_api": "REST API",
     "enable_api_server": "启用 API 服务器",
@@ -80,7 +79,6 @@
     "transfers": "Transfers",
     "max_uploads_desc": "Max parallel uploads",
     "max_downloads_desc": "Max parallel downloads",
-    "zip_folders_desc": "Compress folders into .zip before uploading",
     "performance_compatibility": "Performance & Compatibility",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
     "language_region": "Language & Region",

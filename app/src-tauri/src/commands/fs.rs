@@ -615,7 +615,7 @@ async fn cmd_upload_file_inner(
         }
     }
 
-    let message = InputMessage::new().text("").file(uploaded_file);
+    let message = InputMessage::new().text(file_name.clone()).file(uploaded_file);
 
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
@@ -2104,7 +2104,7 @@ pub async fn cmd_upload_from_url(
         }
     };
 
-    let message = InputMessage::new().text("").file(uploaded_file);
+    let message = InputMessage::new().text(file_name.clone()).file(uploaded_file);
 
     let peer = match resolve_peer(&client, folder_id, &state.peer_cache).await {
         Ok(p) => p,

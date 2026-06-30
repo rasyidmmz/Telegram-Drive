@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.15] - 2026-06-30
+
+### Uploads
+
+- Preserved original uploaded filenames by using the source filename as the Telegram message caption.
+- Removed the unused external drag-and-drop upload overlay.
+- Removed the "Zip folders before upload" setting; folder upload now zips folders automatically.
+
 ## [1.9.14] - 2026-06-28
 
 ### Release Branding

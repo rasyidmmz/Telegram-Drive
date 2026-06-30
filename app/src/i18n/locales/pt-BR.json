@@ -65,7 +65,6 @@
   "settings": {
     "concurrent_uploads": "Envios simultâneos",
     "concurrent_downloads": "Downloads simultâneos",
-    "zip_before_upload": "Compactar pastas antes do envio",
     "performance_mode": "Modo de desempenho",
     "rest_api": "REST API",
     "enable_api_server": "Habilitar servidor API",
@@ -80,7 +79,6 @@
     "transfers": "Transfers",
     "max_uploads_desc": "Max parallel uploads",
     "max_downloads_desc": "Max parallel downloads",
-    "zip_folders_desc": "Compress folders into .zip before uploading",
     "performance_compatibility": "Performance & Compatibility",
     "performance_mode_desc": "Disable blur, heavy shadows & animations",
     "language_region": "Language & Region",
