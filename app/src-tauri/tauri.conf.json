@@ -12,7 +12,7 @@
     }
   },
   "productName": "Teledrive",
-  "version": "1.9.15",
+  "version": "1.9.16",
   "identifier": "com.rasyidmmz.teledrive",
   "build": {
     "beforeDevCommand": "npm run dev",

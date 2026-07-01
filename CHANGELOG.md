@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.16] - 2026-07-01
+
+### Large Files
+
+- Added automatic split upload for files above Telegram's single-file limit.
+- Added split manifest listing, deletion, and download reconstruction.
+- Added local HTTP Range streaming across split parts so MPV can open the original MKV/MP4 as one virtual file.
+- Kept uploaded filenames stable by preserving the original filename caption on normal and split uploads.
+
 ## [1.9.15] - 2026-06-30
 
 ### Uploads

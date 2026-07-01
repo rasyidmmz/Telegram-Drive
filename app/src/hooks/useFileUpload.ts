@@ -138,7 +138,7 @@ export function useFileUpload(activeFolderId: number | null, store: Store | null
                     setUploadQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'cancelled' } : i));
                 } else if (errMsg.includes('FILE_TOO_BIG') || errMsg.includes('too large') || errMsg.includes('2 GB') || errMsg.includes('2GB')) {
                     setUploadQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'error', error: errMsg } : i));
-                    toast.error(`Upload failed: Telegram has a 2 GB single-file limit. Large-file splitting is not available in this build yet.`);
+                    toast.error(`Upload failed: Telegram rejected this file or split part. ${errMsg}`);
                 } else {
                     const displayPath = item.url || item.path;
                     setUploadQueue(q => q.map(i => i.id === item.id ? { ...i, status: 'error', error: errMsg } : i));

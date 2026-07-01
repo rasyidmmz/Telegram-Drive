@@ -3,7 +3,9 @@ use actix_cors::Cors;
 use crate::commands::TelegramState;
 use crate::commands::utils::resolve_peer;
 use grammers_client::types::Media;
+use grammers_client::types::Peer;
 use crate::transcode::TranscodeManager;
+use crate::models::{SplitManifest, SPLIT_MANIFEST_SUFFIX, SPLIT_MANIFEST_VERSION};
 
 use std::net::TcpListener;
 use std::sync::Arc;
@@ -215,6 +217,159 @@ pub fn build_media_response(
     resp.streaming(stream)
 }
 
+async fn split_manifest_from_media(
+    client: &grammers_client::Client,
+    media: &Media,
+) -> Option<SplitManifest> {
+    match media {
+        Media::Document(d) if d.name().ends_with(SPLIT_MANIFEST_SUFFIX) => {
+            let mut bytes = Vec::new();
+            let mut iter = client.iter_download(media);
+            while let Some(chunk) = iter.next().await.transpose() {
+                let chunk = chunk.ok()?;
+                bytes.extend_from_slice(&chunk);
+                if bytes.len() > 1024 * 1024 {
+                    return None;
+                }
+            }
+            let manifest: SplitManifest = serde_json::from_slice(&bytes).ok()?;
+            if manifest.teledrive_split == SPLIT_MANIFEST_VERSION && !manifest.parts.is_empty() {
+                Some(manifest)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn build_split_media_response(
+    client: &grammers_client::Client,
+    peer: Peer,
+    manifest: SplitManifest,
+    req: &actix_web::HttpRequest,
+) -> HttpResponse {
+    let size = manifest.size;
+    let mut start_byte = 0u64;
+    let mut end_byte = if size > 0 { size - 1 } else { 0 };
+    let mut is_range = false;
+
+    if size > 0 {
+        if let Some(range_header) = req.headers().get(actix_web::http::header::RANGE) {
+            if let Ok(range_str) = range_header.to_str() {
+                if let Some((start, end)) = parse_range_header(range_str, size) {
+                    start_byte = start;
+                    end_byte = end;
+                    is_range = true;
+                }
+            }
+        }
+    }
+
+    let content_length = if is_range { end_byte - start_byte + 1 } else { size };
+    let client = client.clone();
+    let mime = manifest.mime_type.clone();
+    let filename = manifest.filename.replace('"', "'");
+    let parts = manifest.parts.clone();
+    let stream = async_stream::stream! {
+        const CHUNK_SIZE: i32 = 65536;
+        const CDN_ALIGNMENT: u64 = 524288;
+
+        let mut part_global_start = 0u64;
+        for part in parts {
+            let part_global_end = part_global_start + part.size.saturating_sub(1);
+            if part_global_end < start_byte {
+                part_global_start += part.size;
+                continue;
+            }
+            if part_global_start > end_byte {
+                break;
+            }
+
+            let wanted_start = start_byte.max(part_global_start);
+            let wanted_end = end_byte.min(part_global_end);
+            let part_offset = wanted_start - part_global_start;
+            let mut remaining = wanted_end - wanted_start + 1;
+
+            let messages = match client.get_messages_by_id(&peer, &[part.message_id]).await {
+                Ok(m) => m,
+                Err(e) => {
+                    log::error!("Split stream failed to fetch part {}: {}", part.message_id, e);
+                    break;
+                }
+            };
+            let msg = match messages.into_iter().flatten().next() {
+                Some(m) => m,
+                None => {
+                    log::error!("Split stream missing part {}", part.message_id);
+                    break;
+                }
+            };
+            let media = match msg.media() {
+                Some(m) => m,
+                None => {
+                    log::error!("Split stream part {} has no media", part.message_id);
+                    break;
+                }
+            };
+
+            let aligned_start = (part_offset / CDN_ALIGNMENT) * CDN_ALIGNMENT;
+            let chunk_index = (aligned_start / CHUNK_SIZE as u64) as i32;
+            let mut bytes_to_skip = (part_offset - aligned_start) as usize;
+            let mut iter = client.iter_download(&media).chunk_size(CHUNK_SIZE);
+            if chunk_index > 0 {
+                iter = iter.skip_chunks(chunk_index);
+            }
+
+            while remaining > 0 {
+                let next = iter.next().await.transpose();
+                let chunk = match next {
+                    Some(Ok(c)) => c,
+                    Some(Err(e)) => {
+                        log::error!("Split stream part {} error: {}", part.message_id, e);
+                        break;
+                    }
+                    None => break,
+                };
+
+                let mut data = chunk;
+                if bytes_to_skip > 0 {
+                    if data.len() <= bytes_to_skip {
+                        bytes_to_skip -= data.len();
+                        continue;
+                    }
+                    data = data[bytes_to_skip..].to_vec();
+                    bytes_to_skip = 0;
+                }
+
+                if data.len() as u64 > remaining {
+                    data.truncate(remaining as usize);
+                }
+                remaining -= data.len() as u64;
+                yield Ok::<_, actix_web::Error>(web::Bytes::from(data));
+            }
+
+            part_global_start += part.size;
+        }
+    };
+
+    let mut resp = if is_range {
+        let mut r = HttpResponse::PartialContent();
+        r.insert_header(("Content-Range", format!("bytes {}-{}/{}", start_byte, end_byte, size)));
+        r.insert_header(("Content-Length", content_length.to_string()));
+        r
+    } else {
+        let mut r = HttpResponse::Ok();
+        r.insert_header(("Content-Length", size.to_string()));
+        r
+    };
+    resp.insert_header(("Content-Type", mime));
+    resp.insert_header(("Accept-Ranges", "bytes"));
+    resp.insert_header(("Cache-Control", "private, max-age=120"));
+    resp.insert_header(("Content-Disposition", format!("attachment; filename=\"{}\"", filename)));
+    resp.streaming(stream)
+}
+
 #[get("/stream/{folder_id}/{message_id}")]
 async fn stream_media(
     req: actix_web::HttpRequest,
@@ -263,11 +418,14 @@ async fn stream_media(
             Ok(peer) => {
                 log::debug!("Stream request: Peer resolved, fetching message {}...", message_id);
                 // Try to fetch message efficiently
-                 match client.get_messages_by_id(peer, &[message_id]).await {
+                 match client.get_messages_by_id(&peer, &[message_id]).await {
                     Ok(messages) => {
                         if let Some(Some(msg)) = messages.first() {
                             if let Some(media) = msg.media() {
                                 log::debug!("Stream request: Message and media found for msg {}", message_id);
+                                if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+                                    return build_split_media_response(&client, peer.clone(), manifest, &req);
+                                }
                                 let mime = mime_type_from_media(&media);
                                 return build_media_response(
                                     &client, &media, &req, &mime, None,

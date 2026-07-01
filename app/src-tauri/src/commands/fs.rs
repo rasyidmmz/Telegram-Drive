@@ -4,7 +4,10 @@ use grammers_client::types::{Media, Peer};
 use grammers_client::InputMessage;
 use grammers_tl_types as tl;
 use crate::TelegramState;
-use crate::models::{FolderMetadata, FileMetadata};
+use crate::models::{
+    FileMetadata, FolderMetadata, SplitManifest, SplitPart, SPLIT_MANIFEST_SUFFIX,
+    SPLIT_MANIFEST_VERSION, SPLIT_PART_CAPTION_PREFIX,
+};
 use crate::bandwidth::BandwidthManager;
 use crate::commands::utils::{resolve_peer, map_error};
 use crate::vpn_optimizer::{NetworkConfig, backoff_ms};
@@ -14,9 +17,15 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::sync::Mutex;
+use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 static UPLOAD_CANCELLATIONS: OnceLock<Mutex<HashMap<String, oneshot::Sender<()>>>> = OnceLock::new();
+
+const TELEGRAM_SINGLE_FILE_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
+const SPLIT_PART_SIZE: u64 = 1900 * 1024 * 1024;
+const SPLIT_TEMP_BUFFER: usize = 1024 * 1024;
 
 fn get_upload_cancellations() -> &'static Mutex<HashMap<String, oneshot::Sender<()>>> {
     UPLOAD_CANCELLATIONS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -326,6 +335,546 @@ impl tokio::io::AsyncRead for ProgressReader {
     }
 }
 
+fn video_mime_from_name(name: &str) -> String {
+    match Path::new(name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("mkv") => "video/x-matroska".to_string(),
+        Some("mp4") => "video/mp4".to_string(),
+        _ => "application/octet-stream".to_string(),
+    }
+}
+
+fn split_temp_path(file_name: &str, suffix: &str) -> PathBuf {
+    let safe_name = file_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect::<String>();
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    std::env::temp_dir().join(format!(
+        "teledrive-{}-{}-{}",
+        std::process::id(),
+        unique,
+        suffix.replace("{name}", &safe_name)
+    ))
+}
+
+async fn write_next_split_part(
+    src: &mut tokio::fs::File,
+    part_path: &Path,
+    max_bytes: u64,
+) -> Result<u64, String> {
+    let mut out = tokio::fs::File::create(part_path)
+        .await
+        .map_err(|e| format!("Failed to create split part: {}", e))?;
+    let mut buf = vec![0u8; SPLIT_TEMP_BUFFER];
+    let mut written = 0u64;
+
+    while written < max_bytes {
+        let want = std::cmp::min(buf.len() as u64, max_bytes - written) as usize;
+        let n = src
+            .read(&mut buf[..want])
+            .await
+            .map_err(|e| format!("Failed to read split source: {}", e))?;
+        if n == 0 {
+            break;
+        }
+        out.write_all(&buf[..n])
+            .await
+            .map_err(|e| format!("Failed to write split part: {}", e))?;
+        written += n as u64;
+    }
+
+    out.flush()
+        .await
+        .map_err(|e| format!("Failed to flush split part: {}", e))?;
+    Ok(written)
+}
+
+async fn download_manifest_bytes(
+    client: &grammers_client::Client,
+    media: &Media,
+) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let mut iter = client.iter_download(media);
+    while let Some(chunk) = iter.next().await.transpose() {
+        let bytes = chunk.map_err(|e| map_error(&e))?;
+        out.extend_from_slice(&bytes);
+        if out.len() > 1024 * 1024 {
+            return Err("Split manifest is too large".to_string());
+        }
+    }
+    Ok(out)
+}
+
+async fn split_manifest_from_media(
+    client: &grammers_client::Client,
+    media: &Media,
+) -> Option<SplitManifest> {
+    match media {
+        Media::Document(d) if d.name().ends_with(SPLIT_MANIFEST_SUFFIX) => {
+            let bytes = download_manifest_bytes(client, media).await.ok()?;
+            let manifest: SplitManifest = serde_json::from_slice(&bytes).ok()?;
+            if manifest.teledrive_split == SPLIT_MANIFEST_VERSION && !manifest.parts.is_empty() {
+                Some(manifest)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+async fn upload_path_and_send(
+    client: &grammers_client::Client,
+    peer: &Peer,
+    path: &str,
+    upload_name: String,
+    caption: String,
+    limit: u64,
+    net_config: &NetworkConfig,
+    tid: &str,
+    state: &TelegramState,
+    app_handle: &tauri::AppHandle,
+    progress_base: u64,
+    progress_total: u64,
+) -> Result<i32, String> {
+    let max_attempts = net_config.retry_attempts();
+    let base_ms = net_config.retry_base_backoff_ms();
+    let max_ms = net_config.retry_max_backoff_ms();
+    let respect_flood = net_config.should_respect_flood_wait();
+    let mut attempt = 0;
+    let mut last_err = String::new();
+    let mut uploaded_file = None;
+
+    while attempt <= max_attempts {
+        if state.cancelled_transfers.read().await.contains(tid) {
+            state.cancelled_transfers.write().await.remove(tid);
+            return Err("Transfer cancelled".to_string());
+        }
+
+        let (mut reader, file_size, bytes_counter) = ProgressReader::new(path, limit).await?;
+        let progress_handle = app_handle.clone();
+        let progress_tid = tid.to_string();
+        let progress_task = if !tid.is_empty() {
+            Some(tokio::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    let current = progress_base + bytes_counter.load(std::sync::atomic::Ordering::Relaxed);
+                    let percent = if progress_total > 0 {
+                        ((current as f64 / progress_total as f64) * 100.0).min(99.0) as u8
+                    } else {
+                        0
+                    };
+                    let _ = progress_handle.emit("upload-progress", ProgressPayload {
+                        id: progress_tid.clone(),
+                        percent,
+                        uploaded_bytes: current,
+                        total_bytes: progress_total,
+                        speed_bytes_per_sec: 0,
+                    });
+                    if current >= progress_base + file_size {
+                        break;
+                    }
+                }
+            }))
+        } else {
+            None
+        };
+
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        if !tid.is_empty() {
+            get_upload_cancellations().lock().unwrap().insert(tid.to_string(), cancel_tx);
+        }
+
+        let client_clone = client.clone();
+        let attempt_upload_name = upload_name.clone();
+        let mut upload_task = tokio::spawn(async move {
+            client_clone.upload_stream(&mut reader, file_size as usize, attempt_upload_name).await
+        });
+
+        let upload_result = tokio::select! {
+            res = &mut upload_task => {
+                if !tid.is_empty() {
+                    get_upload_cancellations().lock().unwrap().remove(tid);
+                }
+                res.map_err(|e| format!("Task join error: {}", e))
+            }
+            _ = cancel_rx => {
+                upload_task.abort();
+                if let Some(t) = progress_task { t.abort(); }
+                state.cancelled_transfers.write().await.remove(tid);
+                return Err("Transfer cancelled".to_string());
+            }
+        };
+
+        if let Some(t) = progress_task {
+            t.abort();
+        }
+
+        match upload_result {
+            Ok(Ok(file)) => {
+                uploaded_file = Some(file);
+                break;
+            }
+            Ok(Err(e)) => {
+                let err = map_error(e);
+                last_err = err.clone();
+                if respect_flood && err.starts_with("FLOOD_WAIT_") {
+                    if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        tokio::time::sleep(std::time::Duration::from_secs(secs.min(300))).await;
+                        attempt += 1;
+                        continue;
+                    }
+                }
+                if attempt < max_attempts {
+                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(attempt, base_ms, max_ms))).await;
+                }
+            }
+            Err(e) => {
+                last_err = e;
+                if attempt < max_attempts {
+                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(attempt, base_ms, max_ms))).await;
+                }
+            }
+        }
+        attempt += 1;
+    }
+
+    let uploaded_file = uploaded_file
+        .ok_or_else(|| format!("Upload failed after {} attempts: {}", max_attempts + 1, last_err))?;
+    let message = InputMessage::new().text(caption).file(uploaded_file);
+    let mut last_err = String::new();
+
+    for attempt in 0..=max_attempts {
+        match client.send_message(peer, message.clone()).await {
+            Ok(msg) => return Ok(msg.id()),
+            Err(e) => {
+                let err = map_error(e);
+                if respect_flood && err.starts_with("FLOOD_WAIT_") {
+                    if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        tokio::time::sleep(std::time::Duration::from_secs(secs.min(300))).await;
+                        last_err = err;
+                        continue;
+                    }
+                }
+                last_err = err;
+                if attempt < max_attempts {
+                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(attempt, base_ms, max_ms))).await;
+                }
+            }
+        }
+    }
+
+    Err(format!("Send failed after {} attempts: {}", max_attempts + 1, last_err))
+}
+
+async fn cleanup_split_messages(client: &grammers_client::Client, peer: &Peer, ids: &[i32]) {
+    if !ids.is_empty() {
+        let _ = client.delete_messages(peer, ids).await;
+    }
+}
+
+async fn split_error<T>(
+    client: &grammers_client::Client,
+    peer: &Peer,
+    uploaded_ids: &[i32],
+    err: String,
+) -> Result<T, String> {
+    cleanup_split_messages(client, peer, uploaded_ids).await;
+    Err(err)
+}
+
+async fn upload_large_file_split(
+    path: &str,
+    folder_id: Option<i64>,
+    file_name: String,
+    size: u64,
+    tid: &str,
+    app_handle: &tauri::AppHandle,
+    state: &TelegramState,
+    client: &grammers_client::Client,
+    net_config: &NetworkConfig,
+    limit: u64,
+) -> Result<String, String> {
+    let peer = resolve_peer(client, folder_id, &state.peer_cache).await?;
+    let total_parts = ((size + SPLIT_PART_SIZE - 1) / SPLIT_PART_SIZE) as usize;
+    let mut src = tokio::fs::File::open(path)
+        .await
+        .map_err(|e| format!("Failed to open large file for splitting: {}", e))?;
+    let mut uploaded_ids: Vec<i32> = Vec::new();
+    let mut parts: Vec<SplitPart> = Vec::new();
+    let mut uploaded_bytes = 0u64;
+
+    for index in 0..total_parts {
+        if state.cancelled_transfers.read().await.contains(tid) {
+            state.cancelled_transfers.write().await.remove(tid);
+            return split_error(client, &peer, &uploaded_ids, "Transfer cancelled".to_string()).await;
+        }
+
+        let part_path = split_temp_path(&file_name, &format!("{{name}}-part-{:04}.bin", index + 1));
+        let written = match write_next_split_part(&mut src, &part_path, SPLIT_PART_SIZE).await {
+            Ok(n) if n > 0 => n,
+            Ok(_) => {
+                let _ = tokio::fs::remove_file(&part_path).await;
+                return split_error(client, &peer, &uploaded_ids, "Split produced an empty part".to_string()).await;
+            }
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&part_path).await;
+                return split_error(client, &peer, &uploaded_ids, e).await;
+            }
+        };
+
+        let upload_name = format!("{}.tdpart{:04}of{:04}", file_name, index + 1, total_parts);
+        let caption = format!("{} {} {}/{}", SPLIT_PART_CAPTION_PREFIX, file_name, index + 1, total_parts);
+        let part_path_str = part_path.to_string_lossy().to_string();
+        let msg_id = match upload_path_and_send(
+            client,
+            &peer,
+            &part_path_str,
+            upload_name,
+            caption,
+            limit,
+            net_config,
+            tid,
+            state,
+            app_handle,
+            uploaded_bytes,
+            size,
+        )
+        .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                let _ = tokio::fs::remove_file(&part_path).await;
+                return split_error(client, &peer, &uploaded_ids, e).await;
+            }
+        };
+
+        let _ = tokio::fs::remove_file(&part_path).await;
+        uploaded_ids.push(msg_id);
+        parts.push(SplitPart { message_id: msg_id, size: written });
+        uploaded_bytes += written;
+
+        if index + 1 < total_parts {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    }
+
+    if uploaded_bytes != size {
+        return split_error(
+            client,
+            &peer,
+            &uploaded_ids,
+            format!("Split size mismatch: expected {} bytes, uploaded {}", size, uploaded_bytes),
+        )
+        .await;
+    }
+
+    let file_ext = Path::new(&file_name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|s| s.to_ascii_lowercase());
+    let manifest = SplitManifest {
+        teledrive_split: SPLIT_MANIFEST_VERSION,
+        filename: file_name.clone(),
+        size,
+        mime_type: video_mime_from_name(&file_name),
+        file_ext,
+        part_size: SPLIT_PART_SIZE,
+        parts,
+    };
+    let manifest_json = serde_json::to_vec(&manifest)
+        .map_err(|e| format!("Failed to encode split manifest: {}", e))?;
+    let manifest_path = split_temp_path(&file_name, &format!("{{name}}{}", SPLIT_MANIFEST_SUFFIX));
+    if let Err(e) = tokio::fs::write(&manifest_path, manifest_json).await {
+        return split_error(client, &peer, &uploaded_ids, format!("Failed to write split manifest: {}", e)).await;
+    }
+
+    let manifest_path_str = manifest_path.to_string_lossy().to_string();
+    let manifest_id = match upload_path_and_send(
+        client,
+        &peer,
+        &manifest_path_str,
+        format!("{}{}", file_name, SPLIT_MANIFEST_SUFFIX),
+        file_name.clone(),
+        limit,
+        net_config,
+        tid,
+        state,
+        app_handle,
+        size,
+        size,
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&manifest_path).await;
+            return split_error(client, &peer, &uploaded_ids, e).await;
+        }
+    };
+
+    let _ = tokio::fs::remove_file(&manifest_path).await;
+    uploaded_ids.push(manifest_id);
+
+    if !tid.is_empty() {
+        let _ = app_handle.emit("upload-progress", ProgressPayload {
+            id: tid.to_string(),
+            percent: 100,
+            uploaded_bytes: size,
+            total_bytes: size,
+            speed_bytes_per_sec: 0,
+        });
+    }
+
+    Ok("Large file uploaded as split parts".to_string())
+}
+
+async fn download_split_file(
+    client: &grammers_client::Client,
+    peer: &Peer,
+    manifest: SplitManifest,
+    save_path: &str,
+    tid: &str,
+    app_handle: &tauri::AppHandle,
+    state: &TelegramState,
+    bw_state: &BandwidthManager,
+    net_config: &NetworkConfig,
+) -> Result<String, String> {
+    bw_state.try_reserve_down(manifest.size)?;
+    if !tid.is_empty() {
+        let _ = app_handle.emit("download-progress", ProgressPayload {
+            id: tid.to_string(),
+            percent: 0,
+            uploaded_bytes: 0,
+            total_bytes: manifest.size,
+            speed_bytes_per_sec: 0,
+        });
+    }
+
+    let mut file = tokio::fs::File::create(save_path).await.map_err(|e| {
+        bw_state.release_down(manifest.size);
+        e.to_string()
+    })?;
+    let mut downloaded = 0u64;
+    let mut last_emit_time = std::time::Instant::now();
+    let mut last_emit_bytes = 0u64;
+
+    for part in &manifest.parts {
+        if state.cancelled_transfers.read().await.contains(tid) {
+            state.cancelled_transfers.write().await.remove(tid);
+            drop(file);
+            cleanup_partial_file(save_path);
+            bw_state.release_down(manifest.size);
+            return Err("Transfer cancelled".to_string());
+        }
+
+        let messages = client
+            .get_messages_by_id(peer, &[part.message_id])
+            .await
+            .map_err(|e| e.to_string())?;
+        let msg = messages
+            .into_iter()
+            .flatten()
+            .next()
+            .ok_or_else(|| format!("Split part {} not found", part.message_id))?;
+        let media = msg.media().ok_or_else(|| format!("Split part {} has no media", part.message_id))?;
+        let mut iter = client.iter_download(&media);
+        let mut chunk_retry_budget = net_config.retry_attempts();
+
+        while let Some(chunk) = iter.next().await.transpose() {
+            if state.cancelled_transfers.read().await.contains(tid) {
+                state.cancelled_transfers.write().await.remove(tid);
+                drop(file);
+                cleanup_partial_file(save_path);
+                bw_state.release_down(manifest.size);
+                return Err("Transfer cancelled".to_string());
+            }
+
+            let bytes = match chunk {
+                Ok(b) => {
+                    chunk_retry_budget = net_config.retry_attempts();
+                    b
+                }
+                Err(e) => {
+                    let err = map_error(&e);
+                    if chunk_retry_budget > 0 {
+                        chunk_retry_budget -= 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(
+                            0,
+                            net_config.retry_base_backoff_ms(),
+                            net_config.retry_max_backoff_ms(),
+                        )))
+                        .await;
+                        continue;
+                    }
+                    drop(file);
+                    cleanup_partial_file(save_path);
+                    bw_state.release_down(manifest.size);
+                    return Err(format!("Split download chunk error: {}", err));
+                }
+            };
+
+            file.write_all(&bytes).await.map_err(|e| e.to_string())?;
+            downloaded += bytes.len() as u64;
+
+            if !tid.is_empty() {
+                let now = std::time::Instant::now();
+                let dt = now.duration_since(last_emit_time).as_secs_f64();
+                if dt >= 0.25 || downloaded >= manifest.size {
+                    let speed = if dt > 0.0 { ((downloaded - last_emit_bytes) as f64 / dt) as u64 } else { 0 };
+                    let percent = if manifest.size > 0 {
+                        ((downloaded as f64 / manifest.size as f64) * 100.0).min(100.0) as u8
+                    } else {
+                        0
+                    };
+                    let _ = app_handle.emit("download-progress", ProgressPayload {
+                        id: tid.to_string(),
+                        percent,
+                        uploaded_bytes: downloaded,
+                        total_bytes: manifest.size,
+                        speed_bytes_per_sec: speed,
+                    });
+                    last_emit_time = now;
+                    last_emit_bytes = downloaded;
+                }
+            }
+        }
+    }
+
+    file.flush().await.map_err(|e| format!("Failed to flush split download: {}", e))?;
+    file.sync_all().await.map_err(|e| format!("Failed to sync split download: {}", e))?;
+    drop(file);
+
+    if downloaded != manifest.size {
+        cleanup_partial_file(save_path);
+        bw_state.release_down(manifest.size);
+        return Err(format!(
+            "Split download size mismatch: expected {} bytes, received {} bytes",
+            manifest.size, downloaded
+        ));
+    }
+
+    if !tid.is_empty() {
+        let _ = app_handle.emit("download-progress", ProgressPayload {
+            id: tid.to_string(),
+            percent: 100,
+            uploaded_bytes: downloaded,
+            total_bytes: manifest.size,
+            speed_bytes_per_sec: 0,
+        });
+    }
+
+    Ok("Download successful".to_string())
+}
+
 /// Delete a partial file with retries (best-effort cleanup)
 fn cleanup_partial_file(path: &str) {
     let path = path.to_string();
@@ -428,6 +977,26 @@ async fn cmd_upload_file_inner(
         let auto_throttle = 5 * 1024 * 1024; // 5 MB/s
         limit = if limit > 0 { limit.min(auto_throttle) } else { auto_throttle };
         log::info!("File size is > 2GB ({} bytes). Auto-throttling upload speed to 5 MB/s.", size);
+    }
+
+    if size > TELEGRAM_SINGLE_FILE_LIMIT {
+        let result = upload_large_file_split(
+            &path,
+            folder_id,
+            file_name,
+            size,
+            &tid,
+            &app_handle,
+            state.inner(),
+            &client,
+            net_config.inner().as_ref(),
+            limit,
+        )
+        .await;
+        if result.is_err() {
+            bw_state.release_up(size);
+        }
+        return result;
     }
 
     let mut attempt = 0;
@@ -775,14 +1344,19 @@ pub async fn cmd_delete_file(
     let messages = client.get_messages_by_id(&peer, &[message_id])
         .await
         .map_err(|e| format!("Failed to fetch message for delete: {}", e))?;
-    if messages.iter().flatten().next().is_none() {
-        return Err(format!(
+    let msg = messages.iter().flatten().next().ok_or_else(|| format!(
             "Message {} not found in folder {:?}. The file may have already been moved or deleted. Please refresh the folder.",
             message_id, folder_id
-        ));
+    ))?;
+
+    let mut ids = vec![message_id];
+    if let Some(media) = msg.media() {
+        if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+            ids.extend(manifest.parts.iter().map(|p| p.message_id));
+        }
     }
 
-    client.delete_messages(&peer, &[message_id]).await.map_err(|e| e.to_string())?;
+    client.delete_messages(&peer, &ids).await.map_err(|e| e.to_string())?;
     Ok(true)
 }
 
@@ -830,6 +1404,21 @@ pub async fn cmd_download_file(
 
     let media = msg.media()
         .ok_or_else(|| "No media in message".to_string())?;
+
+    if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+        return download_split_file(
+            &client,
+            &peer,
+            manifest,
+            &actual_save_path,
+            &tid,
+            &app_handle,
+            state.inner(),
+            bw_state.inner().as_ref(),
+            net_config.inner().as_ref(),
+        )
+        .await;
+    }
 
     let expected_file_size = match &media {
         Media::Document(d) => Some(d.size() as u64),
@@ -999,6 +1588,18 @@ pub async fn cmd_move_files(
     let source_peer = resolve_peer(&client, source_folder_id, &state.peer_cache).await?;
     let target_peer = resolve_peer(&client, target_folder_id, &state.peer_cache).await?;
 
+    let source_messages = client
+        .get_messages_by_id(&source_peer, &message_ids)
+        .await
+        .map_err(|e| format!("Failed to inspect files before move: {}", e))?;
+    for msg in source_messages.iter().flatten() {
+        if let Some(media) = msg.media() {
+            if split_manifest_from_media(&client, &media).await.is_some() {
+                return Err("Large split files cannot be moved safely yet. Keep them in the upload folder or re-upload to the target folder.".to_string());
+            }
+        }
+    }
+
     match client.forward_messages(&target_peer, &message_ids, &source_peer).await {
         Ok(_) => {},
         Err(e) => return Err(format!("Forward failed: {}", e)),
@@ -1031,12 +1632,28 @@ pub async fn cmd_get_files(
     let mut msgs = client.iter_messages(&peer);
     while let Some(msg) = msgs.next().await.map_err(|e| e.to_string())? {
         if let Some(doc) = msg.media() {
+            let caption = msg.text();
+            if caption.starts_with(SPLIT_PART_CAPTION_PREFIX) {
+                continue;
+            }
+            if let Some(manifest) = split_manifest_from_media(&client, &doc).await {
+                files.push(FileMetadata {
+                    id: msg.id() as i64,
+                    folder_id,
+                    name: if caption.is_empty() { manifest.filename.clone() } else { caption.to_string() },
+                    size: manifest.size,
+                    mime_type: Some(manifest.mime_type),
+                    file_ext: manifest.file_ext,
+                    created_at: msg.date().to_string(),
+                    icon_type: "file".into(),
+                });
+                continue;
+            }
             let (name, size, mime, ext) = match doc {
                 Media::Document(d) => {
                     let doc_name = d.name().to_string();
                     // Prefer the message caption (set by rename via EditMessage) over the
                     // document's built-in filename attribute, so renames persist across refreshes.
-                    let caption = msg.text();
                     let display_name = if caption.is_empty() { doc_name.clone() } else { caption.to_string() };
                     let s = d.size();
                     let m = d.mime_type().map(|s| s.to_string());
@@ -1665,9 +2282,6 @@ pub async fn cmd_upload_from_url(
     let temp_dir = std::env::temp_dir();
 
     if let Some(sz) = known_size {
-        if sz > 2_147_483_648 {
-            return Err("Exceeds 2GB Telegram limit.".into());
-        }
         let free_space = tokio::task::spawn_blocking({
             let temp_dir = temp_dir.clone();
             move || {
@@ -1839,13 +2453,6 @@ pub async fn cmd_upload_from_url(
             }
             downloaded += chunk.len() as u64;
 
-            // Dynamic 2GB check when total size is unknown
-            if known_size.is_none() && downloaded > 2_147_483_648 {
-                drop(file);
-                let _ = tokio::fs::remove_file(&temp_file_path).await;
-                return Err("Downloaded file exceeds 2GB Telegram limit.".to_string());
-            }
-
             let now = std::time::Instant::now();
             let dt = now.duration_since(last_emit_time).as_secs_f64();
             let emit_total = known_size.unwrap_or(downloaded);
@@ -1917,11 +2524,6 @@ pub async fn cmd_upload_from_url(
         return Err("Downloaded file is empty".to_string());
     }
 
-    if actual_size > 2_147_483_648 {
-        let _ = tokio::fs::remove_file(&temp_file_path).await;
-        return Err("Downloaded file exceeds 2GB Telegram limit.".to_string());
-    }
-
     // Reserve upload bandwidth based on the real file size (handles both known and unknown upfront)
     if let Err(e) = bw_state.try_reserve_up(actual_size) {
         let _ = tokio::fs::remove_file(&temp_file_path).await;
@@ -1968,6 +2570,27 @@ pub async fn cmd_upload_from_url(
         let auto_throttle = 5 * 1024 * 1024; // 5 MB/s
         limit = if limit > 0 { limit.min(auto_throttle) } else { auto_throttle };
         log::info!("Remote file size is > 2GB ({} bytes). Auto-throttling upload speed to 5 MB/s.", actual_size);
+    }
+
+    if actual_size > TELEGRAM_SINGLE_FILE_LIMIT {
+        let result = upload_large_file_split(
+            &temp_file_str,
+            folder_id,
+            file_name,
+            actual_size,
+            &transfer_id,
+            &app_handle,
+            state.inner(),
+            &client,
+            net_config.inner().as_ref(),
+            limit,
+        )
+        .await;
+        let _ = tokio::fs::remove_file(&temp_file_path).await;
+        if result.is_err() {
+            bw_state.release_up(actual_size);
+        }
+        return result;
     }
 
     let mut attempt = 0;

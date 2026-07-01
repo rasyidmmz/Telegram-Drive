@@ -28,6 +28,27 @@ pub struct FileMetadata {
     pub icon_type: String, 
 }
 
+pub const SPLIT_MANIFEST_VERSION: u8 = 1;
+pub const SPLIT_MANIFEST_SUFFIX: &str = ".tdmanifest.json";
+pub const SPLIT_PART_CAPTION_PREFIX: &str = "[teledrive-part]";
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SplitPart {
+    pub message_id: i32,
+    pub size: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SplitManifest {
+    pub teledrive_split: u8,
+    pub filename: String,
+    pub size: u64,
+    pub mime_type: String,
+    pub file_ext: Option<String>,
+    pub part_size: u64,
+    pub parts: Vec<SplitPart>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FolderMetadata {
     pub id: i64,
