@@ -6,12 +6,16 @@ use actix_web::web::Bytes;
 use std::task::{Context, Poll};
 use crate::commands::TelegramState;
 use crate::commands::utils::{resolve_peer, map_error};
-use crate::commands::fs::ProgressReader;
+use crate::commands::fs::{
+    delete_message_ids, split_manifest_from_media, validate_split_parts_present, ProgressReader,
+};
 use crate::commands::{create_folder_inner, delete_folder_inner, rename_folder_inner};
 use crate::commands::preview::THUMBNAIL_EXTS;
 use crate::models::FolderMetadata;
 use crate::bandwidth::BandwidthManager;
 use crate::vpn_optimizer::NetworkConfig;
+use crate::transfer_retry::{should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
+use crate::transfer_log::record_transfer_log;
 use grammers_client::types::{Media, Peer};
 use grammers_client::InputMessage;
 use grammers_tl_types as tl;
@@ -650,8 +654,31 @@ async fn api_bulk_files(
                 Ok(p) => p,
                 Err(e) => return json_error("PEER_ERROR", &e, 400),
             };
-            if let Err(e) = client.delete_messages(&peer, &ids).await {
-                return json_error("DELETE_FAILED", &e.to_string(), 500);
+
+            let messages = match client.get_messages_by_id(&peer, &ids).await {
+                Ok(messages) => messages,
+                Err(e) => return json_error("FETCH_ERROR", &format!("Failed to inspect files before delete: {}", e), 500),
+            };
+
+            let mut delete_ids = Vec::new();
+            for (message_id, msg) in ids.iter().zip(messages.into_iter()) {
+                let msg = match msg {
+                    Some(msg) => msg,
+                    None => return json_error("MESSAGE_NOT_FOUND", &format!("Message {} not found", message_id), 404),
+                };
+                delete_ids.push(*message_id);
+                if let Some(media) = msg.media() {
+                    if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+                        if let Err(e) = validate_split_parts_present(&client, &peer, &manifest, "API bulk split delete").await {
+                            return json_error("SPLIT_INVALID", &e, 409);
+                        }
+                        delete_ids.extend(manifest.parts.iter().map(|part| part.message_id));
+                    }
+                }
+            }
+
+            if let Err(e) = delete_message_ids(&client, &peer, &delete_ids, "API bulk delete").await {
+                return json_error("DELETE_FAILED", &e, 500);
             }
 
             // Clean up stale thumbnail and preview caches for deleted messages.
@@ -675,10 +702,26 @@ async fn api_bulk_files(
                 Err(e) => return json_error("PEER_ERROR", &e, 400),
             };
             if source_folder != target_folder {
+                let messages = match client.get_messages_by_id(&source_peer, &ids).await {
+                    Ok(messages) => messages,
+                    Err(e) => return json_error("FETCH_ERROR", &format!("Failed to inspect files before move: {}", e), 500),
+                };
+                for (message_id, msg) in ids.iter().zip(messages.into_iter()) {
+                    let msg = match msg {
+                        Some(msg) => msg,
+                        None => return json_error("MESSAGE_NOT_FOUND", &format!("Message {} not found", message_id), 404),
+                    };
+                    if let Some(media) = msg.media() {
+                        if split_manifest_from_media(&client, &media).await.is_some() {
+                            return json_error("SPLIT_MOVE_UNSUPPORTED", "Split files cannot be moved through the REST API yet. Use the desktop file move.", 409);
+                        }
+                    }
+                }
+
                 if let Err(e) = client.forward_messages(&target_peer, &ids, &source_peer).await {
                     return json_error("MOVE_FORWARD_FAILED", &format!("Forward failed: {}", e), 500);
                 }
-                if let Err(e) = client.delete_messages(&source_peer, &ids).await {
+                if let Err(e) = delete_message_ids(&client, &source_peer, &ids, "API bulk move source cleanup").await {
                     return json_error("MOVE_DELETE_FAILED", &format!("Delete original failed: {}", e), 500);
                 }
 
@@ -939,9 +982,28 @@ async fn api_delete_file(
         Err(e) => return json_error("PEER_ERROR", &e, 400),
     };
 
-    match client.delete_messages(&peer, &[message_id]).await {
+    let messages = match client.get_messages_by_id(&peer, &[message_id]).await {
+        Ok(messages) => messages,
+        Err(e) => return json_error("DELETE_FAILED", &e.to_string(), 500),
+    };
+    let msg = match messages.into_iter().flatten().next() {
+        Some(msg) => msg,
+        None => return json_error("NOT_FOUND", "Message not found", 404),
+    };
+
+    let mut ids = vec![message_id];
+    if let Some(media) = msg.media() {
+        if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+            if let Err(e) = validate_split_parts_present(&client, &peer, &manifest, "API split delete").await {
+                return json_error("SPLIT_INVALID", &e, 409);
+            }
+            ids.extend(manifest.parts.iter().map(|part| part.message_id));
+        }
+    }
+
+    match delete_message_ids(&client, &peer, &ids, "API delete").await {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
-        Err(e) => json_error("DELETE_FAILED", &e.to_string(), 500),
+        Err(e) => json_error("DELETE_FAILED", &e, 500),
     }
 }
 
@@ -980,6 +1042,16 @@ async fn api_copy_file(
         Ok(p) => p,
         Err(e) => return json_error("TARGET_PEER_ERROR", &e, 400),
     };
+
+    if let Ok(messages) = client.get_messages_by_id(&source_peer, &[message_id]).await {
+        if let Some(Some(msg)) = messages.first() {
+            if let Some(media) = msg.media() {
+                if split_manifest_from_media(&client, &media).await.is_some() {
+                    return json_error("SPLIT_COPY_UNSUPPORTED", "Split files cannot be copied through the REST API yet.", 409);
+                }
+            }
+        }
+    }
 
     match client.forward_messages(&target_peer, &[message_id], &source_peer).await {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
@@ -1073,6 +1145,16 @@ async fn api_update_file(
                 Ok(p) => p,
                 Err(e) => return json_error("TARGET_PEER_ERROR", &e, 400),
             };
+
+            if let Ok(messages) = client.get_messages_by_id(&source_peer, &[message_id]).await {
+                if let Some(Some(msg)) = messages.first() {
+                    if let Some(media) = msg.media() {
+                        if split_manifest_from_media(&client, &media).await.is_some() {
+                            return json_error("SPLIT_MOVE_UNSUPPORTED", "Split files cannot be moved through the REST API yet. Use the desktop file move.", 409);
+                        }
+                    }
+                }
+            }
 
             if let Err(e) = client.forward_messages(&target_peer, &[message_id], &source_peer).await {
                 return json_error("MOVE_FORWARD_FAILED", &e.to_string(), 500);
@@ -1203,11 +1285,13 @@ async fn api_upload_file(
         limit = user_limit;
     }
     let mut attempt = 0;
-    let max_attempts = net_config.retry_attempts();
+    let configured_attempts = net_config.retry_attempts();
+    let max_attempts = upload_stream_retry_attempts(configured_attempts);
     let respect_flood = net_config.should_respect_flood_wait();
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let mut last_err = String::new();
+    let mut attempts_made = 0;
     let mut uploaded_file = None;
 
     while attempt <= max_attempts {
@@ -1220,6 +1304,8 @@ async fn api_upload_file(
             }
         };
 
+        attempts_made = attempt + 1;
+
         match client.upload_stream(&mut open_file, file_size as usize, filename.clone()).await {
             Ok(uf) => {
                 uploaded_file = Some(uf);
@@ -1228,10 +1314,24 @@ async fn api_upload_file(
             Err(e) => {
                 let err = map_error(e);
                 log::warn!("API upload_stream attempt {}/{}: {}", attempt + 1, max_attempts + 1, err);
-                last_err = err.clone();
+                last_err = format!("{}: {}", upload_error_kind(&err), err);
+                record_transfer_log(
+                    "API upload",
+                    format!("API upload attempt {}/{} failed for {}", attempt + 1, max_attempts + 1, filename),
+                    Some(format!(
+                        "file_size: {}\nerror_kind: {}\nretry: {}\nerror: {}",
+                        file_size,
+                        upload_error_kind(&err),
+                        should_retry_upload_error(&err, attempt, configured_attempts),
+                        err
+                    )),
+                );
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        if attempt >= configured_attempts {
+                            break;
+                        }
                         let wait = secs.min(300);
                         log::info!("Respecting FLOOD_WAIT for API upload: sleeping {}s", wait);
                         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
@@ -1240,10 +1340,12 @@ async fn api_upload_file(
                     }
                 }
 
-                if attempt < max_attempts {
+                if should_retry_upload_error(&err, attempt, configured_attempts) {
                     let delay = crate::vpn_optimizer::backoff_ms(attempt, base_ms, max_ms);
                     log::info!("Retrying API upload in {}ms...", delay);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    break;
                 }
             }
         }
@@ -1256,7 +1358,7 @@ async fn api_upload_file(
         None => {
             bw_manager.release_up(file_size);
             let _ = tokio::fs::remove_file(&temp_path).await;
-            return json_error("UPLOAD_FAILED", &format!("Upload failed after {} attempts: {}", max_attempts + 1, last_err), 500);
+            return json_error("UPLOAD_FAILED", &format!("Upload failed after {} attempts: {}", attempts_made, last_err), 500);
         }
     };
 

@@ -41,6 +41,9 @@ fn init_com_on_worker_thread() {
 pub mod commands;
 pub mod bandwidth;
 pub mod vpn_optimizer;
+pub mod transfer_retry;
+pub mod split_manifest;
+pub mod transfer_log;
 pub mod socks5_bridge;
 
 use tauri::Manager;
@@ -436,6 +439,8 @@ pub fn run() {
             commands::cmd_assign_folder_to_group,
             commands::cmd_update_group_order,
             commands::cmd_get_groups,
+            transfer_log::cmd_get_transfer_logs,
+            transfer_log::cmd_clear_transfer_logs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

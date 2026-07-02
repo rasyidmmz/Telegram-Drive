@@ -23,6 +23,7 @@ import { ShareDialog } from './dashboard/ShareDialog';
 import { RenameFolderModal } from './dashboard/RenameFolderModal';
 import { RenameFileModal } from './dashboard/RenameFileModal';
 import { RemoteUploadModal } from './dashboard/RemoteUploadModal';
+import { LogsModal } from './dashboard/LogsModal';
 import { Link, Copy, Check, X, Loader2 } from 'lucide-react';
 
 // Hooks
@@ -33,6 +34,7 @@ import { useFileDownload } from '../../hooks/useFileDownload';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useSettings } from '../../context/SettingsContext';
 import { useConfirm } from '../../context/ConfirmContext';
+import { recordErrorLog } from '../../errorLogs';
 
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const queryClient = useQueryClient();
@@ -56,6 +58,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [showMoveModal, setShowMoveModal] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
+    const [showLogs, setShowLogs] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
     const [searchResults, setSearchResults] = useState<TelegramFile[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -78,6 +81,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [renameFolder, setRenameFolder] = useState<{ id: number; name: string } | null>(null);
     const [moveFileTarget, setMoveFileTarget] = useState<TelegramFile | null>(null);
     const [renameFileTarget, setRenameFileTarget] = useState<TelegramFile | null>(null);
+    const loggedTransferErrors = useRef<Set<string>>(new Set());
 
     const { data: allFiles = [], isLoading, error } = useQuery({
         queryKey: ['files', activeFolderId],
@@ -103,6 +107,39 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
     const { uploadQueue, setUploadQueue, handleManualUpload, handleFolderUpload, handleUrlUpload, cancelAll: cancelUploads, cancelItem: cancelUploadItem, retryItem: retryUploadItem } = useFileUpload(activeFolderId, store);
     const { downloadQueue, queueDownload, queueBulkDownload, clearFinished: clearDownloads, cancelAll: cancelDownloads, cancelItem: cancelDownloadItem, retryItem: retryDownloadItem } = useFileDownload(store);
+
+    useEffect(() => {
+        const activeKeys = new Set<string>();
+
+        for (const item of uploadQueue) {
+            if (item.status !== 'error' || !item.error) continue;
+            const key = `upload:${item.id}:${item.error}`;
+            activeKeys.add(key);
+            if (loggedTransferErrors.current.has(key)) continue;
+
+            const name = basename(item.url || item.path);
+            recordErrorLog({
+                source: item.url ? 'Remote upload' : 'Upload',
+                message: `Upload failed: ${name}`,
+                details: item.error,
+            });
+        }
+
+        for (const item of downloadQueue) {
+            if (item.status !== 'error' || !item.error) continue;
+            const key = `download:${item.id}:${item.error}`;
+            activeKeys.add(key);
+            if (loggedTransferErrors.current.has(key)) continue;
+
+            recordErrorLog({
+                source: 'Download',
+                message: `Download failed: ${item.filename}`,
+                details: item.error,
+            });
+        }
+
+        loggedTransferErrors.current = activeKeys;
+    }, [uploadQueue, downloadQueue]);
 
     const {
         handleDelete, handleBulkDelete, handleBulkDownload,
@@ -651,6 +688,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     searchTerm={searchTerm}
                     onSearchChange={setSearchTerm}
                     onSettingsClick={() => setShowSettings(true)}
+                    onLogsClick={() => setShowLogs(true)}
                     onRemoteUploadClick={() => setShowRemoteUpload(true)}
                 />
                 {searchTerm.length > 2 && (
@@ -735,6 +773,11 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             <SettingsModal
                 isOpen={showSettings}
                 onClose={() => setShowSettings(false)}
+            />
+
+            <LogsModal
+                isOpen={showLogs}
+                onClose={() => setShowLogs(false)}
             />
 
             {shareFile && (
@@ -831,4 +874,8 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
             )}
         </div>
     );
+}
+
+function basename(path: string) {
+    return path.split(/[\\/]/).pop() || path;
 }

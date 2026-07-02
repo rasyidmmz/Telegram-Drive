@@ -5,7 +5,9 @@ use crate::commands::utils::resolve_peer;
 use grammers_client::types::Media;
 use grammers_client::types::Peer;
 use crate::transcode::TranscodeManager;
-use crate::models::{SplitManifest, SPLIT_MANIFEST_SUFFIX, SPLIT_MANIFEST_VERSION};
+use crate::models::{SplitManifest, SPLIT_MANIFEST_SUFFIX};
+use crate::split_manifest::validate_split_manifest;
+use crate::transfer_log::record_transfer_log;
 
 use std::net::TcpListener;
 use std::sync::Arc;
@@ -233,7 +235,7 @@ async fn split_manifest_from_media(
                 }
             }
             let manifest: SplitManifest = serde_json::from_slice(&bytes).ok()?;
-            if manifest.teledrive_split == SPLIT_MANIFEST_VERSION && !manifest.parts.is_empty() {
+            if validate_split_manifest(&manifest).is_ok() {
                 Some(manifest)
             } else {
                 None
@@ -270,6 +272,7 @@ fn build_split_media_response(
     let client = client.clone();
     let mime = manifest.mime_type.clone();
     let filename = manifest.filename.replace('"', "'");
+    let log_filename = filename.clone();
     let parts = manifest.parts.clone();
     let stream = async_stream::stream! {
         const CHUNK_SIZE: i32 = 65536;
@@ -294,24 +297,47 @@ fn build_split_media_response(
             let messages = match client.get_messages_by_id(&peer, &[part.message_id]).await {
                 Ok(m) => m,
                 Err(e) => {
-                    log::error!("Split stream failed to fetch part {}: {}", part.message_id, e);
+                    let err = format!("Split stream failed to fetch part {}: {}", part.message_id, e);
+                    log::error!("{}", err);
+                    record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
+                    yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part fetch failed"));
                     break;
                 }
             };
             let msg = match messages.into_iter().flatten().next() {
                 Some(m) => m,
                 None => {
-                    log::error!("Split stream missing part {}", part.message_id);
+                    let err = format!("Split stream missing part {}", part.message_id);
+                    log::error!("{}", err);
+                    record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
+                    yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part missing"));
                     break;
                 }
             };
             let media = match msg.media() {
                 Some(m) => m,
                 None => {
-                    log::error!("Split stream part {} has no media", part.message_id);
+                    let err = format!("Split stream part {} has no media", part.message_id);
+                    log::error!("{}", err);
+                    record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
+                    yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part has no media"));
                     break;
                 }
             };
+            if let Some(actual_size) = media_size(&media) {
+                if actual_size != part.size {
+                    let err = format!(
+                        "Split stream part {} size mismatch: expected {}, got {}",
+                        part.message_id,
+                        part.size,
+                        actual_size
+                    );
+                    log::error!("{}", err);
+                    record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
+                    yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part size mismatch"));
+                    break;
+                }
+            }
 
             let aligned_start = (part_offset / CDN_ALIGNMENT) * CDN_ALIGNMENT;
             let chunk_index = (aligned_start / CHUNK_SIZE as u64) as i32;
@@ -326,7 +352,10 @@ fn build_split_media_response(
                 let chunk = match next {
                     Some(Ok(c)) => c,
                     Some(Err(e)) => {
-                        log::error!("Split stream part {} error: {}", part.message_id, e);
+                        let err = format!("Split stream part {} error: {}", part.message_id, e);
+                        log::error!("{}", err);
+                        record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
+                        yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split stream part error"));
                         break;
                     }
                     None => break,
@@ -368,6 +397,13 @@ fn build_split_media_response(
     resp.insert_header(("Cache-Control", "private, max-age=120"));
     resp.insert_header(("Content-Disposition", format!("attachment; filename=\"{}\"", filename)));
     resp.streaming(stream)
+}
+
+fn media_size(media: &Media) -> Option<u64> {
+    match media {
+        Media::Document(d) => Some(d.size() as u64),
+        _ => None,
+    }
 }
 
 #[get("/stream/{folder_id}/{message_id}")]

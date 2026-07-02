@@ -11,6 +11,9 @@ use crate::models::{
 use crate::bandwidth::BandwidthManager;
 use crate::commands::utils::{resolve_peer, map_error};
 use crate::vpn_optimizer::{NetworkConfig, backoff_ms};
+use crate::transfer_retry::{should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
+use crate::split_manifest::validate_split_manifest;
+use crate::transfer_log::record_transfer_log;
 use crate::db::DbConnection;
 use sqlite;
 use serde::Serialize;
@@ -406,7 +409,7 @@ async fn download_manifest_bytes(
     Ok(out)
 }
 
-async fn split_manifest_from_media(
+pub(crate) async fn split_manifest_from_media(
     client: &grammers_client::Client,
     media: &Media,
 ) -> Option<SplitManifest> {
@@ -414,12 +417,78 @@ async fn split_manifest_from_media(
         Media::Document(d) if d.name().ends_with(SPLIT_MANIFEST_SUFFIX) => {
             let bytes = download_manifest_bytes(client, media).await.ok()?;
             let manifest: SplitManifest = serde_json::from_slice(&bytes).ok()?;
-            if manifest.teledrive_split == SPLIT_MANIFEST_VERSION && !manifest.parts.is_empty() {
+            if validate_split_manifest(&manifest).is_ok() {
                 Some(manifest)
             } else {
                 None
             }
         }
+        _ => None,
+    }
+}
+
+pub(crate) async fn validate_split_parts_present(
+    client: &grammers_client::Client,
+    peer: &Peer,
+    manifest: &SplitManifest,
+    source: &str,
+) -> Result<(), String> {
+    validate_split_manifest(manifest)?;
+
+    let mut base_index = 0usize;
+    for chunk in manifest.parts.chunks(100) {
+        let ids: Vec<i32> = chunk.iter().map(|part| part.message_id).collect();
+        let messages = client
+            .get_messages_by_id(peer, &ids)
+            .await
+            .map_err(|e| format!("Failed to validate split parts: {}", e))?;
+
+        for (offset, (part, msg)) in chunk.iter().zip(messages.into_iter()).enumerate() {
+            let part_number = base_index + offset + 1;
+            let msg = msg.ok_or_else(|| {
+                let err = format!(
+                    "Split file incomplete: missing part {}/{} (message_id {})",
+                    part_number,
+                    manifest.parts.len(),
+                    part.message_id
+                );
+                record_transfer_log(source, err.clone(), Some(format!("file: {}", manifest.filename)));
+                err
+            })?;
+            let media = msg.media().ok_or_else(|| {
+                let err = format!(
+                    "Split file incomplete: part {}/{} has no media (message_id {})",
+                    part_number,
+                    manifest.parts.len(),
+                    part.message_id
+                );
+                record_transfer_log(source, err.clone(), Some(format!("file: {}", manifest.filename)));
+                err
+            })?;
+            if let Some(actual_size) = media_size(&media) {
+                if actual_size != part.size {
+                    let err = format!(
+                        "Split part size mismatch: part {}/{} expected {} bytes, Telegram has {} bytes",
+                        part_number,
+                        manifest.parts.len(),
+                        part.size,
+                        actual_size
+                    );
+                    record_transfer_log(source, err.clone(), Some(format!("file: {}", manifest.filename)));
+                    return Err(err);
+                }
+            }
+        }
+
+        base_index += chunk.len();
+    }
+
+    Ok(())
+}
+
+fn media_size(media: &Media) -> Option<u64> {
+    match media {
+        Media::Document(d) => Some(d.size() as u64),
         _ => None,
     }
 }
@@ -438,11 +507,13 @@ async fn upload_path_and_send(
     progress_base: u64,
     progress_total: u64,
 ) -> Result<i32, String> {
-    let max_attempts = net_config.retry_attempts();
+    let configured_attempts = net_config.retry_attempts();
+    let max_attempts = upload_stream_retry_attempts(configured_attempts);
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let respect_flood = net_config.should_respect_flood_wait();
     let mut attempt = 0;
+    let mut attempts_made = 0;
     let mut last_err = String::new();
     let mut uploaded_file = None;
 
@@ -492,6 +563,8 @@ async fn upload_path_and_send(
             client_clone.upload_stream(&mut reader, file_size as usize, attempt_upload_name).await
         });
 
+        attempts_made = attempt + 1;
+
         let upload_result = tokio::select! {
             res = &mut upload_task => {
                 if !tid.is_empty() {
@@ -518,22 +591,52 @@ async fn upload_path_and_send(
             }
             Ok(Err(e)) => {
                 let err = map_error(e);
-                last_err = err.clone();
+                last_err = format!("{}: {}", upload_error_kind(&err), err);
+                record_transfer_log(
+                    "Upload",
+                    format!("Upload attempt {}/{} failed for {}", attempt + 1, max_attempts + 1, upload_name),
+                    Some(format!(
+                        "transfer_id: {}\nfile_size: {}\nerror_kind: {}\nretry: {}\nerror: {}",
+                        tid,
+                        file_size,
+                        upload_error_kind(&err),
+                        should_retry_upload_error(&err, attempt, configured_attempts),
+                        err
+                    )),
+                );
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        if attempt >= configured_attempts {
+                            break;
+                        }
                         tokio::time::sleep(std::time::Duration::from_secs(secs.min(300))).await;
                         attempt += 1;
                         continue;
                     }
                 }
-                if attempt < max_attempts {
+                if should_retry_upload_error(&err, attempt, configured_attempts) {
                     tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(attempt, base_ms, max_ms))).await;
+                } else {
+                    break;
                 }
             }
             Err(e) => {
                 last_err = e;
-                if attempt < max_attempts {
+                record_transfer_log(
+                    "Upload",
+                    format!("Upload task attempt {}/{} failed for {}", attempt + 1, max_attempts + 1, upload_name),
+                    Some(format!(
+                        "transfer_id: {}\nfile_size: {}\nretry: {}\nerror: {}",
+                        tid,
+                        file_size,
+                        should_retry_upload_error(&last_err, attempt, configured_attempts),
+                        last_err
+                    )),
+                );
+                if should_retry_upload_error(&last_err, attempt, configured_attempts) {
                     tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(attempt, base_ms, max_ms))).await;
+                } else {
+                    break;
                 }
             }
         }
@@ -541,11 +644,11 @@ async fn upload_path_and_send(
     }
 
     let uploaded_file = uploaded_file
-        .ok_or_else(|| format!("Upload failed after {} attempts: {}", max_attempts + 1, last_err))?;
+        .ok_or_else(|| format!("Upload failed after {} attempts: {}", attempts_made, last_err))?;
     let message = InputMessage::new().text(caption).file(uploaded_file);
     let mut last_err = String::new();
 
-    for attempt in 0..=max_attempts {
+    for attempt in 0..=configured_attempts {
         match client.send_message(peer, message.clone()).await {
             Ok(msg) => return Ok(msg.id()),
             Err(e) => {
@@ -558,20 +661,151 @@ async fn upload_path_and_send(
                     }
                 }
                 last_err = err;
-                if attempt < max_attempts {
+                if attempt < configured_attempts {
                     tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(attempt, base_ms, max_ms))).await;
                 }
             }
         }
     }
 
-    Err(format!("Send failed after {} attempts: {}", max_attempts + 1, last_err))
+    Err(format!("Send failed after {} attempts: {}", configured_attempts + 1, last_err))
+}
+
+pub(crate) async fn delete_message_ids(
+    client: &grammers_client::Client,
+    peer: &Peer,
+    ids: &[i32],
+    source: &str,
+) -> Result<(), String> {
+    for chunk in ids.chunks(100) {
+        client
+            .delete_messages(peer, chunk)
+            .await
+            .map_err(|e| {
+                let err = format!("Delete failed: {}", e);
+                record_transfer_log(source, err.clone(), Some(format!("message_ids: {:?}", chunk)));
+                err
+            })?;
+    }
+    Ok(())
 }
 
 async fn cleanup_split_messages(client: &grammers_client::Client, peer: &Peer, ids: &[i32]) {
     if !ids.is_empty() {
-        let _ = client.delete_messages(peer, ids).await;
+        let _ = delete_message_ids(client, peer, ids, "Split cleanup").await;
     }
+}
+
+pub(crate) async fn forward_message_ids_checked(
+    client: &grammers_client::Client,
+    source_peer: &Peer,
+    target_peer: &Peer,
+    ids: &[i32],
+    source: &str,
+) -> Result<Vec<i32>, String> {
+    let mut forwarded_ids = Vec::new();
+
+    for chunk in ids.chunks(100) {
+        let messages = match client.forward_messages(target_peer, chunk, source_peer).await {
+            Ok(messages) => messages,
+            Err(e) => {
+                cleanup_split_messages(client, target_peer, &forwarded_ids).await;
+                let err = format!("Forward failed: {}", e);
+                record_transfer_log(source, err.clone(), Some(format!("message_ids: {:?}", chunk)));
+                return Err(err);
+            }
+        };
+
+        for (source_id, forwarded) in chunk.iter().zip(messages.into_iter()) {
+            match forwarded {
+                Some(msg) => forwarded_ids.push(msg.id()),
+                None => {
+                    cleanup_split_messages(client, target_peer, &forwarded_ids).await;
+                    let err = format!("Forward failed for message {}", source_id);
+                    record_transfer_log(source, err.clone(), Some(format!("message_ids: {:?}", chunk)));
+                    return Err(err);
+                }
+            }
+        }
+    }
+
+    Ok(forwarded_ids)
+}
+
+async fn move_split_file(
+    client: &grammers_client::Client,
+    source_peer: &Peer,
+    target_peer: &Peer,
+    manifest_message_id: i32,
+    manifest: SplitManifest,
+    app_handle: &tauri::AppHandle,
+    state: &TelegramState,
+    net_config: &NetworkConfig,
+) -> Result<(), String> {
+    validate_split_parts_present(client, source_peer, &manifest, "Split move").await?;
+
+    let source_part_ids: Vec<i32> = manifest.parts.iter().map(|part| part.message_id).collect();
+    let forwarded_part_ids = forward_message_ids_checked(
+        client,
+        source_peer,
+        target_peer,
+        &source_part_ids,
+        "Split move",
+    )
+    .await?;
+
+    let mut target_cleanup_ids = forwarded_part_ids.clone();
+    let mut target_manifest = manifest.clone();
+    for (part, new_id) in target_manifest.parts.iter_mut().zip(forwarded_part_ids.iter()) {
+        part.message_id = *new_id;
+    }
+    validate_split_manifest(&target_manifest)?;
+
+    let manifest_json = serde_json::to_vec(&target_manifest)
+        .map_err(|e| format!("Failed to encode moved split manifest: {}", e))?;
+    let manifest_path = split_temp_path(&target_manifest.filename, &format!("{{name}}{}", SPLIT_MANIFEST_SUFFIX));
+    if let Err(e) = tokio::fs::write(&manifest_path, manifest_json).await {
+        cleanup_split_messages(client, target_peer, &target_cleanup_ids).await;
+        return Err(format!("Failed to write moved split manifest: {}", e));
+    }
+
+    let manifest_path_str = manifest_path.to_string_lossy().to_string();
+    let manifest_id = match upload_path_and_send(
+        client,
+        target_peer,
+        &manifest_path_str,
+        format!("{}{}", target_manifest.filename, SPLIT_MANIFEST_SUFFIX),
+        target_manifest.filename.clone(),
+        net_config.upload_limit_bytes_per_sec(),
+        net_config,
+        "",
+        state,
+        app_handle,
+        target_manifest.size,
+        target_manifest.size,
+    )
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            let _ = tokio::fs::remove_file(&manifest_path).await;
+            cleanup_split_messages(client, target_peer, &target_cleanup_ids).await;
+            record_transfer_log("Split move", e.clone(), Some(format!("file: {}", target_manifest.filename)));
+            return Err(e);
+        }
+    };
+
+    let _ = tokio::fs::remove_file(&manifest_path).await;
+    target_cleanup_ids.push(manifest_id);
+    if let Err(e) = validate_split_parts_present(client, target_peer, &target_manifest, "Split move target validation").await {
+        cleanup_split_messages(client, target_peer, &target_cleanup_ids).await;
+        return Err(e);
+    }
+
+    let mut source_delete_ids = vec![manifest_message_id];
+    source_delete_ids.extend(source_part_ids);
+    delete_message_ids(client, source_peer, &source_delete_ids, "Split move source cleanup").await?;
+    Ok(())
 }
 
 async fn split_error<T>(
@@ -683,6 +917,9 @@ async fn upload_large_file_split(
         part_size: SPLIT_PART_SIZE,
         parts,
     };
+    if let Err(e) = validate_split_manifest(&manifest) {
+        return split_error(client, &peer, &uploaded_ids, e).await;
+    }
     let manifest_json = serde_json::to_vec(&manifest)
         .map_err(|e| format!("Failed to encode split manifest: {}", e))?;
     let manifest_path = split_temp_path(&file_name, &format!("{{name}}{}", SPLIT_MANIFEST_SUFFIX));
@@ -741,6 +978,7 @@ async fn download_split_file(
     bw_state: &BandwidthManager,
     net_config: &NetworkConfig,
 ) -> Result<String, String> {
+    validate_split_parts_present(client, peer, &manifest, "Split download").await?;
     bw_state.try_reserve_down(manifest.size)?;
     if !tid.is_empty() {
         let _ = app_handle.emit("download-progress", ProgressPayload {
@@ -798,6 +1036,18 @@ async fn download_split_file(
                 }
                 Err(e) => {
                     let err = map_error(&e);
+                    record_transfer_log(
+                        "Split download",
+                        format!("Split download chunk error for {}", manifest.filename),
+                        Some(format!(
+                            "transfer_id: {}\nfile_size: {}\ndownloaded: {}\nretries_left: {}\nerror: {}",
+                            tid,
+                            manifest.size,
+                            downloaded,
+                            chunk_retry_budget,
+                            err
+                        )),
+                    );
                     if chunk_retry_budget > 0 {
                         chunk_retry_budget -= 1;
                         tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(
@@ -987,11 +1237,13 @@ async fn cmd_upload_file_inner(
     }
 
     let mut attempt = 0;
-    let max_attempts = net_config.retry_attempts();
+    let configured_attempts = net_config.retry_attempts();
+    let max_attempts = upload_stream_retry_attempts(configured_attempts);
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let respect_flood = net_config.should_respect_flood_wait();
     let mut last_err = String::new();
+    let mut attempts_made = 0;
     let mut uploaded_file = None;
 
     while attempt <= max_attempts {
@@ -1053,6 +1305,8 @@ async fn cmd_upload_file_inner(
             client_clone.upload_stream(&mut reader, file_size as usize, name_clone).await
         });
 
+        attempts_made = attempt + 1;
+
         let upload_result = {
             tokio::select! {
                 res = &mut upload_task => {
@@ -1082,10 +1336,25 @@ async fn cmd_upload_file_inner(
             Ok(Err(e)) => {
                 let err = map_error(e);
                 log::warn!("upload_stream attempt {}/{}: {}", attempt + 1, max_attempts + 1, err);
-                last_err = err.clone();
+                last_err = format!("{}: {}", upload_error_kind(&err), err);
+                record_transfer_log(
+                    "Upload",
+                    format!("Upload attempt {}/{} failed for {}", attempt + 1, max_attempts + 1, file_name),
+                    Some(format!(
+                        "transfer_id: {}\nfile_size: {}\nerror_kind: {}\nretry: {}\nerror: {}",
+                        tid,
+                        file_size,
+                        upload_error_kind(&err),
+                        should_retry_upload_error(&err, attempt, configured_attempts),
+                        err
+                    )),
+                );
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        if attempt >= configured_attempts {
+                            break;
+                        }
                         let wait = secs.min(300);
                         log::info!("Respecting FLOOD_WAIT for upload: sleeping {}s", wait);
                         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
@@ -1094,18 +1363,33 @@ async fn cmd_upload_file_inner(
                     }
                 }
 
-                if attempt < max_attempts {
+                if should_retry_upload_error(&err, attempt, configured_attempts) {
                     let delay = backoff_ms(attempt, base_ms, max_ms);
                     log::info!("Retrying upload in {}ms...", delay);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    break;
                 }
             }
             Err(e) => {
                 log::warn!("upload_stream task failed attempt {}/{}: {}", attempt + 1, max_attempts + 1, e);
                 last_err = e;
-                if attempt < max_attempts {
+                record_transfer_log(
+                    "Upload",
+                    format!("Upload task attempt {}/{} failed for {}", attempt + 1, max_attempts + 1, file_name),
+                    Some(format!(
+                        "transfer_id: {}\nfile_size: {}\nretry: {}\nerror: {}",
+                        tid,
+                        file_size,
+                        should_retry_upload_error(&last_err, attempt, configured_attempts),
+                        last_err
+                    )),
+                );
+                if should_retry_upload_error(&last_err, attempt, configured_attempts) {
                     let delay = backoff_ms(attempt, base_ms, max_ms);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    break;
                 }
             }
         }
@@ -1117,7 +1401,7 @@ async fn cmd_upload_file_inner(
         Some(f) => f,
         None => {
             bw_state.release_up(size);
-            return Err(format!("Upload failed after {} attempts: {}", max_attempts + 1, last_err));
+            return Err(format!("Upload failed after {} attempts: {}", attempts_made, last_err));
         }
     };
 
@@ -1339,11 +1623,12 @@ pub async fn cmd_delete_file(
     let mut ids = vec![message_id];
     if let Some(media) = msg.media() {
         if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+            validate_split_parts_present(&client, &peer, &manifest, "Split delete").await?;
             ids.extend(manifest.parts.iter().map(|p| p.message_id));
         }
     }
 
-    client.delete_messages(&peer, &ids).await.map_err(|e| e.to_string())?;
+    delete_message_ids(&client, &peer, &ids, "Delete").await?;
     Ok(true)
 }
 
@@ -1561,7 +1846,9 @@ pub async fn cmd_move_files(
     message_ids: Vec<i32>,
     source_folder_id: Option<i64>,
     target_folder_id: Option<i64>,
+    app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
+    net_config: State<'_, std::sync::Arc<NetworkConfig>>,
 ) -> Result<bool, String> {
     if source_folder_id == target_folder_id { return Ok(true); }
     let client_opt = { state.client.lock().await.clone() };
@@ -1579,22 +1866,52 @@ pub async fn cmd_move_files(
         .get_messages_by_id(&source_peer, &message_ids)
         .await
         .map_err(|e| format!("Failed to inspect files before move: {}", e))?;
-    for msg in source_messages.iter().flatten() {
+
+    let mut normal_ids = Vec::new();
+    let mut split_moves = Vec::new();
+    for (message_id, msg) in message_ids.iter().zip(source_messages.into_iter()) {
+        let msg = msg.ok_or_else(|| format!("Message {} not found in source folder. Please refresh and try again.", message_id))?;
         if let Some(media) = msg.media() {
-            if split_manifest_from_media(&client, &media).await.is_some() {
-                return Err("Large split files cannot be moved safely yet. Keep them in the upload folder or re-upload to the target folder.".to_string());
+            if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+                validate_split_parts_present(&client, &source_peer, &manifest, "Split move preflight").await?;
+                split_moves.push((*message_id, manifest));
+                continue;
             }
         }
+        normal_ids.push(*message_id);
     }
 
-    match client.forward_messages(&target_peer, &message_ids, &source_peer).await {
-        Ok(_) => {},
-        Err(e) => return Err(format!("Forward failed: {}", e)),
+    for (manifest_message_id, manifest) in split_moves {
+        move_split_file(
+            &client,
+            &source_peer,
+            &target_peer,
+            manifest_message_id,
+            manifest,
+            &app_handle,
+            state.inner(),
+            net_config.inner().as_ref(),
+        )
+        .await?;
     }
-    
-    match client.delete_messages(&source_peer, &message_ids).await {
-        Ok(_) => {},
-        Err(e) => return Err(format!("Delete original failed: {}", e)),
+
+    if !normal_ids.is_empty() {
+        let forwarded_ids = forward_message_ids_checked(
+            &client,
+            &source_peer,
+            &target_peer,
+            &normal_ids,
+            "Move",
+        )
+        .await?;
+        if let Err(e) = delete_message_ids(&client, &source_peer, &normal_ids, "Move source cleanup").await {
+            record_transfer_log(
+                "Move",
+                "Moved files were forwarded but source delete failed".to_string(),
+                Some(format!("target_message_ids: {:?}\nerror: {}", forwarded_ids, e)),
+            );
+            return Err(format!("Delete original failed: {}", e));
+        }
     }
 
     Ok(true)
@@ -2575,11 +2892,13 @@ pub async fn cmd_upload_from_url(
     }
 
     let mut attempt = 0;
-    let max_attempts = net_config.retry_attempts();
+    let configured_attempts = net_config.retry_attempts();
+    let max_attempts = upload_stream_retry_attempts(configured_attempts);
     let respect_flood = net_config.should_respect_flood_wait();
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let mut last_err = String::new();
+    let mut attempts_made = 0;
     let mut uploaded_file = None;
 
     while attempt <= max_attempts {
@@ -2640,6 +2959,8 @@ pub async fn cmd_upload_from_url(
             client_clone.upload_stream(&mut reader, file_size as usize, name_clone).await
         });
 
+        attempts_made = attempt + 1;
+
         let upload_result = {
             tokio::select! {
                 res = &mut upload_task => {
@@ -2668,10 +2989,25 @@ pub async fn cmd_upload_from_url(
             Ok(Err(e)) => {
                 let err = map_error(e);
                 log::warn!("Remote upload_stream attempt {}/{}: {}", attempt + 1, max_attempts + 1, err);
-                last_err = err.clone();
+                last_err = format!("{}: {}", upload_error_kind(&err), err);
+                record_transfer_log(
+                    "Remote upload",
+                    format!("Remote upload attempt {}/{} failed for {}", attempt + 1, max_attempts + 1, file_name),
+                    Some(format!(
+                        "transfer_id: {}\nfile_size: {}\nerror_kind: {}\nretry: {}\nerror: {}",
+                        transfer_id,
+                        file_size,
+                        upload_error_kind(&err),
+                        should_retry_upload_error(&err, attempt, configured_attempts),
+                        err
+                    )),
+                );
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
+                        if attempt >= configured_attempts {
+                            break;
+                        }
                         let wait = secs.min(300);
                         log::info!("Respecting FLOOD_WAIT for remote upload: sleeping {}s", wait);
                         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
@@ -2680,18 +3016,33 @@ pub async fn cmd_upload_from_url(
                     }
                 }
 
-                if attempt < max_attempts {
+                if should_retry_upload_error(&err, attempt, configured_attempts) {
                     let delay = backoff_ms(attempt, base_ms, max_ms);
                     log::info!("Retrying remote upload in {}ms...", delay);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    break;
                 }
             }
             Err(e) => {
                 log::warn!("Remote upload_stream task failed attempt {}/{}: {}", attempt + 1, max_attempts + 1, e);
                 last_err = e;
-                if attempt < max_attempts {
+                record_transfer_log(
+                    "Remote upload",
+                    format!("Remote upload task attempt {}/{} failed for {}", attempt + 1, max_attempts + 1, file_name),
+                    Some(format!(
+                        "transfer_id: {}\nfile_size: {}\nretry: {}\nerror: {}",
+                        transfer_id,
+                        file_size,
+                        should_retry_upload_error(&last_err, attempt, configured_attempts),
+                        last_err
+                    )),
+                );
+                if should_retry_upload_error(&last_err, attempt, configured_attempts) {
                     let delay = backoff_ms(attempt, base_ms, max_ms);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    break;
                 }
             }
         }
@@ -2704,7 +3055,7 @@ pub async fn cmd_upload_from_url(
         None => {
             bw_state.release_up(actual_size);
             let _ = tokio::fs::remove_file(&temp_file_path).await;
-            return Err(format!("Remote upload failed after {} attempts: {}", max_attempts + 1, last_err));
+            return Err(format!("Remote upload failed after {} attempts: {}", attempts_made, last_err));
         }
     };
 
