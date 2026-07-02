@@ -1202,12 +1202,6 @@ async fn api_upload_file(
     if user_limit > 0 {
         limit = user_limit;
     }
-    if file_size > 2 * 1024 * 1024 * 1024 {
-        let auto_throttle = 5 * 1024 * 1024; // 5 MB/s
-        limit = if limit > 0 { limit.min(auto_throttle) } else { auto_throttle };
-        log::info!("API File upload is > 2GB ({} bytes). Auto-throttling to 5 MB/s.", file_size);
-    }
-
     let mut attempt = 0;
     let max_attempts = net_config.retry_attempts();
     let respect_flood = net_config.should_respect_flood_wait();

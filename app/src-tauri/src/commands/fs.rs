@@ -966,12 +966,6 @@ async fn cmd_upload_file_inner(
     if user_limit > 0 {
         limit = user_limit;
     }
-    if size > 2 * 1024 * 1024 * 1024 {
-        let auto_throttle = 5 * 1024 * 1024; // 5 MB/s
-        limit = if limit > 0 { limit.min(auto_throttle) } else { auto_throttle };
-        log::info!("File size is > 2GB ({} bytes). Auto-throttling upload speed to 5 MB/s.", size);
-    }
-
     if size > TELEGRAM_SINGLE_FILE_LIMIT {
         let result = upload_large_file_split(
             &path,
@@ -2559,12 +2553,6 @@ pub async fn cmd_upload_from_url(
     if user_limit > 0 {
         limit = user_limit;
     }
-    if actual_size > 2 * 1024 * 1024 * 1024 {
-        let auto_throttle = 5 * 1024 * 1024; // 5 MB/s
-        limit = if limit > 0 { limit.min(auto_throttle) } else { auto_throttle };
-        log::info!("Remote file size is > 2GB ({} bytes). Auto-throttling upload speed to 5 MB/s.", actual_size);
-    }
-
     if actual_size > TELEGRAM_SINGLE_FILE_LIMIT {
         let result = upload_large_file_split(
             &temp_file_str,
