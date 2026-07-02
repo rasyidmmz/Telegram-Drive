@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.9.17] - 2026-07-02
+
+### Uploads
+
+- Fixed throttled uploads losing already-read bytes, which could cause large split uploads to fail with `reached EOF before reaching the last file part`.
+
 ## [1.9.16] - 2026-07-01
 
 ### Large Files

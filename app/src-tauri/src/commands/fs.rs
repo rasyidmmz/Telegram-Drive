@@ -318,14 +318,7 @@ impl tokio::io::AsyncRead for ProgressReader {
                         let needed_sleep = target_time - elapsed;
                         if needed_sleep > 0.005 {
                             let sleep_duration = std::time::Duration::from_secs_f64(needed_sleep);
-                            let mut sleep = Box::pin(tokio::time::sleep(sleep_duration));
-                            match std::pin::Pin::new(&mut sleep).poll(cx) {
-                                std::task::Poll::Ready(()) => {}
-                                std::task::Poll::Pending => {
-                                    self.sleep_future = Some(sleep);
-                                    return std::task::Poll::Pending;
-                                }
-                            }
+                            self.sleep_future = Some(Box::pin(tokio::time::sleep(sleep_duration)));
                         }
                     }
                 }
