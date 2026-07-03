@@ -9,8 +9,10 @@ use crate::models::{SplitManifest, SPLIT_MANIFEST_SUFFIX};
 use crate::split_manifest::validate_split_manifest;
 use crate::transfer_log::record_transfer_log;
 
+use std::collections::HashMap;
 use std::net::TcpListener;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Holds the per-session streaming token for Actix validation
 pub struct StreamTokenData {
@@ -21,6 +23,18 @@ pub struct StreamTokenData {
 struct StreamQuery {
     token: Option<String>,
 }
+
+const SPLIT_STREAM_PART_CACHE_LIMIT: usize = 8;
+const SPLIT_STREAM_PART_CACHE_TTL: Duration = Duration::from_secs(600);
+
+#[derive(Clone)]
+struct CachedSplitPart {
+    media: Media,
+    size: Option<u64>,
+    stored_at: Instant,
+}
+
+static SPLIT_STREAM_PART_CACHE: OnceLock<Mutex<HashMap<String, CachedSplitPart>>> = OnceLock::new();
 
 pub fn parse_range_header(header_val: &str, total_size: u64) -> Option<(u64, u64)> {
     if !header_val.starts_with("bytes=") {
@@ -249,6 +263,7 @@ fn build_split_media_response(
     client: &grammers_client::Client,
     peer: Peer,
     manifest: SplitManifest,
+    cache_scope: String,
     req: &actix_web::HttpRequest,
 ) -> HttpResponse {
     let size = manifest.size;
@@ -294,37 +309,46 @@ fn build_split_media_response(
             let part_offset = wanted_start - part_global_start;
             let mut remaining = wanted_end - wanted_start + 1;
 
-            let messages = match client.get_messages_by_id(&peer, &[part.message_id]).await {
-                Ok(m) => m,
-                Err(e) => {
-                    let err = format!("Split stream failed to fetch part {}: {}", part.message_id, e);
-                    log::error!("{}", err);
-                    record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
-                    yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part fetch failed"));
-                    break;
-                }
-            };
-            let msg = match messages.into_iter().flatten().next() {
-                Some(m) => m,
+            let cache_key = split_part_cache_key(&cache_scope, part.message_id);
+            let (media, cached_size) = match get_cached_split_part(&cache_key) {
+                Some(cached) => cached,
                 None => {
-                    let err = format!("Split stream missing part {}", part.message_id);
-                    log::error!("{}", err);
-                    record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
-                    yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part missing"));
-                    break;
+                    let messages = match client.get_messages_by_id(&peer, &[part.message_id]).await {
+                        Ok(m) => m,
+                        Err(e) => {
+                            let err = format!("Split stream failed to fetch part {}: {}", part.message_id, e);
+                            log::error!("{}", err);
+                            record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
+                            yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part fetch failed"));
+                            break;
+                        }
+                    };
+                    let msg = match messages.into_iter().flatten().next() {
+                        Some(m) => m,
+                        None => {
+                            let err = format!("Split stream missing part {}", part.message_id);
+                            log::error!("{}", err);
+                            record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
+                            yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part missing"));
+                            break;
+                        }
+                    };
+                    let media = match msg.media() {
+                        Some(m) => m,
+                        None => {
+                            let err = format!("Split stream part {} has no media", part.message_id);
+                            log::error!("{}", err);
+                            record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
+                            yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part has no media"));
+                            break;
+                        }
+                    };
+                    let size = media_size(&media);
+                    put_cached_split_part(&cache_key, media.clone(), size);
+                    (media, size)
                 }
             };
-            let media = match msg.media() {
-                Some(m) => m,
-                None => {
-                    let err = format!("Split stream part {} has no media", part.message_id);
-                    log::error!("{}", err);
-                    record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
-                    yield Err::<web::Bytes, actix_web::Error>(actix_web::error::ErrorInternalServerError("split part has no media"));
-                    break;
-                }
-            };
-            if let Some(actual_size) = media_size(&media) {
+            if let Some(actual_size) = cached_size {
                 if actual_size != part.size {
                     let err = format!(
                         "Split stream part {} size mismatch: expected {}, got {}",
@@ -352,6 +376,7 @@ fn build_split_media_response(
                 let chunk = match next {
                     Some(Ok(c)) => c,
                     Some(Err(e)) => {
+                        remove_cached_split_part(&cache_key);
                         let err = format!("Split stream part {} error: {}", part.message_id, e);
                         log::error!("{}", err);
                         record_transfer_log("Split stream", err, Some(format!("file: {}", log_filename)));
@@ -403,6 +428,48 @@ fn media_size(media: &Media) -> Option<u64> {
     match media {
         Media::Document(d) => Some(d.size() as u64),
         _ => None,
+    }
+}
+
+fn split_part_cache_key(scope: &str, message_id: i32) -> String {
+    format!("{}:{}", scope, message_id)
+}
+
+fn get_cached_split_part(key: &str) -> Option<(Media, Option<u64>)> {
+    let mut cache = split_stream_part_cache().lock().unwrap();
+    if let Some(entry) = cache.get(key) {
+        if entry.stored_at.elapsed() <= SPLIT_STREAM_PART_CACHE_TTL {
+            return Some((entry.media.clone(), entry.size));
+        }
+    }
+    cache.remove(key);
+    None
+}
+
+fn put_cached_split_part(key: &str, media: Media, size: Option<u64>) {
+    let mut cache = split_stream_part_cache().lock().unwrap();
+    // ponytail: tiny arbitrary eviction; use a real LRU only if seek-heavy streaming proves it matters.
+    if cache.len() >= SPLIT_STREAM_PART_CACHE_LIMIT {
+        if let Some(old_key) = cache.keys().next().cloned() {
+            cache.remove(&old_key);
+        }
+    }
+    cache.insert(key.to_string(), CachedSplitPart { media, size, stored_at: Instant::now() });
+}
+
+fn remove_cached_split_part(key: &str) {
+    split_stream_part_cache().lock().unwrap().remove(key);
+}
+
+fn split_stream_part_cache() -> &'static Mutex<HashMap<String, CachedSplitPart>> {
+    SPLIT_STREAM_PART_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn split_part_cache_key_includes_scope_and_message_id() {
+        assert_eq!(super::split_part_cache_key("folder-1", 42), "folder-1:42");
     }
 }
 
@@ -460,7 +527,7 @@ async fn stream_media(
                             if let Some(media) = msg.media() {
                                 log::debug!("Stream request: Message and media found for msg {}", message_id);
                                 if let Some(manifest) = split_manifest_from_media(&client, &media).await {
-                                    return build_split_media_response(&client, peer.clone(), manifest, &req);
+                                    return build_split_media_response(&client, peer.clone(), manifest, folder_id_str.clone(), &req);
                                 }
                                 let mime = mime_type_from_media(&media);
                                 return build_media_response(

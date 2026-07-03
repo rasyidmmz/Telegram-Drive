@@ -99,6 +99,11 @@ export function LogsModal({ isOpen, onClose }: LogsModalProps) {
                                                 <div className="min-w-0">
                                                     <div className="flex items-center gap-2 mb-1">
                                                         <span className="text-xs font-medium text-red-400">{log.source}</span>
+                                                        {log.category && (
+                                                            <span className="rounded bg-telegram-border px-1.5 py-0.5 text-[10px] text-telegram-subtext">
+                                                                {log.category}
+                                                            </span>
+                                                        )}
                                                         <span className="text-[11px] text-telegram-subtext">{new Date(log.time).toLocaleString()}</span>
                                                     </div>
                                                     <p className="text-sm text-telegram-text break-words">{log.message}</p>
@@ -141,8 +146,9 @@ export function LogsModal({ isOpen, onClose }: LogsModalProps) {
 }
 
 function formatEntry(log: ErrorLogEntry) {
+    const source = log.category ? `${log.source} / ${log.category}` : log.source;
     return [
-        `[${new Date(log.time).toLocaleString()}] ${log.source}`,
+        `[${new Date(log.time).toLocaleString()}] ${source}`,
         log.message,
         log.details,
     ].filter(Boolean).join('\n');

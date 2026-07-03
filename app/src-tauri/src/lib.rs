@@ -44,6 +44,8 @@ pub mod vpn_optimizer;
 pub mod transfer_retry;
 pub mod split_manifest;
 pub mod transfer_log;
+pub mod failure_classifier;
+pub mod split_upload_resume;
 pub mod socks5_bridge;
 
 use tauri::Manager;
@@ -372,6 +374,7 @@ pub fn run() {
             commands::settings::cmd_set_autostart,
             commands::cmd_connect,
             commands::cmd_log,
+            commands::cmd_check_split_file_health,
             commands::cmd_delete_file,
             commands::cmd_download_file,
             commands::cmd_move_files,

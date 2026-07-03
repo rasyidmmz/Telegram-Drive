@@ -4,6 +4,7 @@ export interface ErrorLogEntry {
     id: string;
     time: string;
     source: string;
+    category?: string;
     message: string;
     details?: string;
 }

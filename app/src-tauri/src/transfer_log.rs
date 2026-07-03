@@ -1,3 +1,4 @@
+use crate::failure_classifier::classify_failure;
 use serde::Serialize;
 use std::sync::{Mutex, OnceLock};
 
@@ -7,6 +8,7 @@ const MAX_TRANSFER_LOGS: usize = 100;
 pub struct TransferLogEntry {
     pub time: String,
     pub source: String,
+    pub category: String,
     pub message: String,
     pub details: Option<String>,
 }
@@ -18,10 +20,14 @@ pub(crate) fn record_transfer_log(
     message: impl Into<String>,
     details: Option<String>,
 ) {
+    let message = message.into();
+    let details = details;
+    let category = classify_failure(&message, details.as_deref()).to_string();
     let entry = TransferLogEntry {
         time: chrono::Utc::now().to_rfc3339(),
         source: source.into(),
-        message: message.into(),
+        category,
+        message,
         details,
     };
     let mut logs = logs().lock().unwrap();
@@ -65,5 +71,15 @@ mod tests {
         assert_eq!(logs.len(), 100);
         assert_eq!(logs[0].message, "entry 104");
         assert_eq!(logs[99].message, "entry 5");
+    }
+
+    #[test]
+    fn classifies_logged_transfer_errors() {
+        super::clear_transfer_logs();
+
+        super::record_transfer_log("upload", "request error: read 0 bytes", None);
+
+        let logs = super::transfer_logs();
+        assert_eq!(logs[0].category, "network/proxy");
     }
 }

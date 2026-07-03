@@ -13,6 +13,11 @@ use crate::commands::utils::{resolve_peer, map_error};
 use crate::vpn_optimizer::{NetworkConfig, backoff_ms};
 use crate::transfer_retry::{should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
 use crate::split_manifest::validate_split_manifest;
+use crate::split_upload_resume::{
+    clear_split_upload_state, expected_split_part_size, load_split_upload_state,
+    save_split_upload_state, split_upload_state_path, SplitUploadResumePart,
+    SplitUploadResumeState,
+};
 use crate::transfer_log::record_transfer_log;
 use crate::db::DbConnection;
 use sqlite;
@@ -20,15 +25,50 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::sync::Mutex;
+use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 static UPLOAD_CANCELLATIONS: OnceLock<Mutex<HashMap<String, oneshot::Sender<()>>>> = OnceLock::new();
 
 const TELEGRAM_SINGLE_FILE_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
-const SPLIT_PART_SIZE: u64 = 1900 * 1024 * 1024;
+const SPLIT_PART_SIZE: u64 = 512 * 1024 * 1024;
 const SPLIT_TEMP_BUFFER: usize = 1024 * 1024;
+
+#[derive(Debug, Serialize)]
+pub struct SplitHealthReport {
+    pub is_split: bool,
+    pub ok: bool,
+    pub filename: Option<String>,
+    pub size: Option<u64>,
+    pub part_count: usize,
+    pub issues: Vec<String>,
+}
+
+impl SplitHealthReport {
+    fn not_split() -> Self {
+        Self {
+            is_split: false,
+            ok: true,
+            filename: None,
+            size: None,
+            part_count: 0,
+            issues: Vec::new(),
+        }
+    }
+
+    fn split(manifest: &SplitManifest, issues: Vec<String>) -> Self {
+        Self {
+            is_split: true,
+            ok: issues.is_empty(),
+            filename: Some(manifest.filename.clone()),
+            size: Some(manifest.size),
+            part_count: manifest.parts.len(),
+            issues,
+        }
+    }
+}
 
 fn get_upload_cancellations() -> &'static Mutex<HashMap<String, oneshot::Sender<()>>> {
     UPLOAD_CANCELLATIONS.get_or_init(|| Mutex::new(HashMap::new()))
@@ -486,6 +526,49 @@ pub(crate) async fn validate_split_parts_present(
     Ok(())
 }
 
+async fn inspect_split_parts(
+    client: &grammers_client::Client,
+    peer: &Peer,
+    manifest: &SplitManifest,
+) -> SplitHealthReport {
+    let mut issues = Vec::new();
+    if let Err(e) = validate_split_manifest(manifest) {
+        issues.push(e);
+    }
+
+    for chunk in manifest.parts.chunks(100) {
+        let ids: Vec<i32> = chunk.iter().map(|part| part.message_id).collect();
+        let messages = match client.get_messages_by_id(peer, &ids).await {
+            Ok(messages) => messages,
+            Err(e) => {
+                issues.push(format!("Failed to fetch split parts: {}", e));
+                return SplitHealthReport::split(manifest, issues);
+            }
+        };
+
+        for (part, msg) in chunk.iter().zip(messages.into_iter()) {
+            let Some(msg) = msg else {
+                issues.push(format!("Missing part message_id {}", part.message_id));
+                continue;
+            };
+            let Some(media) = msg.media() else {
+                issues.push(format!("Part {} has no media", part.message_id));
+                continue;
+            };
+            if let Some(actual_size) = media_size(&media) {
+                if actual_size != part.size {
+                    issues.push(format!(
+                        "Part {} size mismatch: expected {}, got {}",
+                        part.message_id, part.size, actual_size
+                    ));
+                }
+            }
+        }
+    }
+
+    SplitHealthReport::split(manifest, issues)
+}
+
 fn media_size(media: &Media) -> Option<u64> {
     match media {
         Media::Document(d) => Some(d.size() as u64),
@@ -818,6 +901,27 @@ async fn split_error<T>(
     Err(err)
 }
 
+async fn save_split_resume_snapshot(
+    path: &PathBuf,
+    folder_id: Option<i64>,
+    file_name: &str,
+    file_size: u64,
+    total_parts: usize,
+    resume_parts: &[SplitUploadResumePart],
+) {
+    let state = SplitUploadResumeState::new(
+        folder_id,
+        file_name.to_string(),
+        file_size,
+        SPLIT_PART_SIZE,
+        total_parts,
+        resume_parts.to_vec(),
+    );
+    if let Err(e) = save_split_upload_state(path, &state).await {
+        record_transfer_log("Split upload", e, Some(format!("file: {}", file_name)));
+    }
+}
+
 async fn upload_large_file_split(
     path: &str,
     folder_id: Option<i64>,
@@ -832,28 +936,81 @@ async fn upload_large_file_split(
 ) -> Result<String, String> {
     let peer = resolve_peer(client, folder_id, &state.peer_cache).await?;
     let total_parts = ((size + SPLIT_PART_SIZE - 1) / SPLIT_PART_SIZE) as usize;
+    let resume_path = split_upload_state_path(app_handle, folder_id, &file_name, size, SPLIT_PART_SIZE)?;
     let mut src = tokio::fs::File::open(path)
         .await
         .map_err(|e| format!("Failed to open large file for splitting: {}", e))?;
     let mut uploaded_ids: Vec<i32> = Vec::new();
     let mut parts: Vec<SplitPart> = Vec::new();
+    let mut resume_parts: Vec<SplitUploadResumePart> = Vec::new();
     let mut uploaded_bytes = 0u64;
+    let mut resume_by_index: HashMap<usize, SplitUploadResumePart> = HashMap::new();
+
+    if let Some(resume) = load_split_upload_state(&resume_path).await {
+        if resume.matches_upload(folder_id, &file_name, size, SPLIT_PART_SIZE, total_parts) {
+            for part in resume.parts {
+                let Some(expected_size) = expected_split_part_size(size, SPLIT_PART_SIZE, part.index, total_parts) else {
+                    continue;
+                };
+                if part.message_id > 0 && part.size == expected_size && !resume_by_index.contains_key(&part.index) {
+                    resume_by_index.insert(part.index, part);
+                }
+            }
+            if !resume_by_index.is_empty() {
+                record_transfer_log(
+                    "Split upload",
+                    format!("Resuming split upload for {}", file_name),
+                    Some(format!("reused_parts: {}/{}", resume_by_index.len(), total_parts)),
+                );
+            }
+        }
+    }
 
     for index in 0..total_parts {
         if state.cancelled_transfers.read().await.contains(tid) {
             state.cancelled_transfers.write().await.remove(tid);
+            clear_split_upload_state(&resume_path).await;
             return split_error(client, &peer, &uploaded_ids, "Transfer cancelled".to_string()).await;
         }
 
+        if let Some(resumed) = resume_by_index.remove(&index) {
+            uploaded_ids.push(resumed.message_id);
+            parts.push(SplitPart { message_id: resumed.message_id, size: resumed.size });
+            uploaded_bytes += resumed.size;
+            resume_parts.push(resumed);
+            if !tid.is_empty() {
+                let _ = app_handle.emit("upload-progress", ProgressPayload {
+                    id: tid.to_string(),
+                    percent: ((uploaded_bytes.saturating_mul(100) / size.max(1)) as u8).min(100),
+                    uploaded_bytes,
+                    total_bytes: size,
+                    speed_bytes_per_sec: 0,
+                });
+            }
+            continue;
+        }
+
+        if let Err(e) = src.seek(SeekFrom::Start(index as u64 * SPLIT_PART_SIZE)).await {
+            clear_split_upload_state(&resume_path).await;
+            return split_error(
+                client,
+                &peer,
+                &uploaded_ids,
+                format!("Failed to seek split source: {}", e),
+            )
+            .await;
+        }
         let part_path = split_temp_path(&file_name, &format!("{{name}}-part-{:04}.bin", index + 1));
         let written = match write_next_split_part(&mut src, &part_path, SPLIT_PART_SIZE).await {
             Ok(n) if n > 0 => n,
             Ok(_) => {
                 let _ = tokio::fs::remove_file(&part_path).await;
+                clear_split_upload_state(&resume_path).await;
                 return split_error(client, &peer, &uploaded_ids, "Split produced an empty part".to_string()).await;
             }
             Err(e) => {
                 let _ = tokio::fs::remove_file(&part_path).await;
+                clear_split_upload_state(&resume_path).await;
                 return split_error(client, &peer, &uploaded_ids, e).await;
             }
         };
@@ -880,14 +1037,33 @@ async fn upload_large_file_split(
             Ok(id) => id,
             Err(e) => {
                 let _ = tokio::fs::remove_file(&part_path).await;
-                return split_error(client, &peer, &uploaded_ids, e).await;
+                save_split_resume_snapshot(
+                    &resume_path,
+                    folder_id,
+                    &file_name,
+                    size,
+                    total_parts,
+                    &resume_parts,
+                )
+                .await;
+                return Err(format!("{}; retry this upload to resume from the last completed split part", e));
             }
         };
 
         let _ = tokio::fs::remove_file(&part_path).await;
         uploaded_ids.push(msg_id);
         parts.push(SplitPart { message_id: msg_id, size: written });
+        resume_parts.push(SplitUploadResumePart { index, message_id: msg_id, size: written });
         uploaded_bytes += written;
+        save_split_resume_snapshot(
+            &resume_path,
+            folder_id,
+            &file_name,
+            size,
+            total_parts,
+            &resume_parts,
+        )
+        .await;
 
         if index + 1 < total_parts {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -895,6 +1071,7 @@ async fn upload_large_file_split(
     }
 
     if uploaded_bytes != size {
+        clear_split_upload_state(&resume_path).await;
         return split_error(
             client,
             &peer,
@@ -918,12 +1095,29 @@ async fn upload_large_file_split(
         parts,
     };
     if let Err(e) = validate_split_manifest(&manifest) {
+        clear_split_upload_state(&resume_path).await;
         return split_error(client, &peer, &uploaded_ids, e).await;
     }
-    let manifest_json = serde_json::to_vec(&manifest)
-        .map_err(|e| format!("Failed to encode split manifest: {}", e))?;
+    if let Err(e) = validate_split_parts_present(client, &peer, &manifest, "Split upload validation").await {
+        clear_split_upload_state(&resume_path).await;
+        return split_error(client, &peer, &uploaded_ids, e).await;
+    }
+    let manifest_json = match serde_json::to_vec(&manifest) {
+        Ok(json) => json,
+        Err(e) => {
+            clear_split_upload_state(&resume_path).await;
+            return split_error(
+                client,
+                &peer,
+                &uploaded_ids,
+                format!("Failed to encode split manifest: {}", e),
+            )
+            .await;
+        }
+    };
     let manifest_path = split_temp_path(&file_name, &format!("{{name}}{}", SPLIT_MANIFEST_SUFFIX));
     if let Err(e) = tokio::fs::write(&manifest_path, manifest_json).await {
+        clear_split_upload_state(&resume_path).await;
         return split_error(client, &peer, &uploaded_ids, format!("Failed to write split manifest: {}", e)).await;
     }
 
@@ -947,12 +1141,22 @@ async fn upload_large_file_split(
         Ok(id) => id,
         Err(e) => {
             let _ = tokio::fs::remove_file(&manifest_path).await;
-            return split_error(client, &peer, &uploaded_ids, e).await;
+            save_split_resume_snapshot(
+                &resume_path,
+                folder_id,
+                &file_name,
+                size,
+                total_parts,
+                &resume_parts,
+            )
+            .await;
+            return Err(format!("{}; retry this upload to reuse the completed split parts", e));
         }
     };
 
     let _ = tokio::fs::remove_file(&manifest_path).await;
     uploaded_ids.push(manifest_id);
+    clear_split_upload_state(&resume_path).await;
 
     if !tid.is_empty() {
         let _ = app_handle.emit("upload-progress", ProgressPayload {
@@ -1591,6 +1795,36 @@ pub async fn cmd_rename_file(
     }).await.map_err(|e| format!("Failed to rename file: {}", e))?;
 
     Ok(true)
+}
+
+#[tauri::command]
+pub async fn cmd_check_split_file_health(
+    message_id: i32,
+    folder_id: Option<i64>,
+    state: State<'_, TelegramState>,
+) -> Result<SplitHealthReport, String> {
+    let client_opt = { state.client.lock().await.clone() };
+    #[cfg(debug_assertions)]
+    if client_opt.is_none() {
+        return Ok(SplitHealthReport::not_split());
+    }
+    let client = client_opt.ok_or_else(|| "Client not connected".to_string())?;
+    let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
+    let messages = client
+        .get_messages_by_id(&peer, &[message_id])
+        .await
+        .map_err(|e| format!("Failed to fetch message for split health check: {}", e))?;
+    let Some(msg) = messages.into_iter().flatten().next() else {
+        return Err(format!("Message {} not found", message_id));
+    };
+    let Some(media) = msg.media() else {
+        return Ok(SplitHealthReport::not_split());
+    };
+    let Some(manifest) = split_manifest_from_media(&client, &media).await else {
+        return Ok(SplitHealthReport::not_split());
+    };
+
+    Ok(inspect_split_parts(&client, &peer, &manifest).await)
 }
 
 #[tauri::command]
