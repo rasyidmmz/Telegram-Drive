@@ -37,6 +37,8 @@ fn is_transient_upload_error(err: &str) -> bool {
         "connection reset",
         "connection aborted",
         "connection closed",
+        "forcibly closed",
+        "os error 10054",
         "connection lost",
         "broken pipe",
         "timed out",
@@ -65,6 +67,15 @@ mod tests {
         let err = "rpc error 400: FILE_PARTS_INVALID caused by upload.saveBigFilePart";
 
         assert!(!should_retry_upload_error(err, 0, 0));
+    }
+
+    #[test]
+    fn windows_connection_reset_gets_internal_retry() {
+        let err = "request error: An existing connection was forcibly closed by the remote host. (os error 10054)";
+
+        assert_eq!(upload_error_kind(err), "transient network/Telegram read error");
+        assert!(should_retry_upload_error(err, 1, 1));
+        assert!(!should_retry_upload_error(err, 2, 1));
     }
 
     #[test]

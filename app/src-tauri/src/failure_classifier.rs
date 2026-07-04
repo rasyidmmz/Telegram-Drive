@@ -24,6 +24,8 @@ pub(crate) fn classify_failure(message: &str, details: Option<&str>) -> &'static
         || text.contains("unexpected eof")
         || text.contains("connection reset")
         || text.contains("connection aborted")
+        || text.contains("forcibly closed")
+        || text.contains("os error 10054")
         || text.contains("broken pipe")
         || text.contains("timed out")
         || text.contains("timeout")
@@ -40,6 +42,13 @@ mod tests {
     fn classifies_common_upload_failures() {
         assert_eq!(
             super::classify_failure("Upload failed: request error: read 0 bytes", None),
+            "network/proxy"
+        );
+        assert_eq!(
+            super::classify_failure(
+                "Upload failed",
+                Some("request error: An existing connection was forcibly closed by the remote host. (os error 10054)")
+            ),
             "network/proxy"
         );
         assert_eq!(

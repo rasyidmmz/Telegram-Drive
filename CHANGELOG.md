@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.9.20] - 2026-07-04
+
+### Playback
+
+- Improved MPV resume support by keeping watch-later state under app data and stabilizing stream URLs.
+- Improved streaming headers used by MPV and direct downloads.
+
+### Updates
+
+- Improved updater progress, install, restart, and failure visibility in the update banner.
+
+## [1.9.19] - 2026-07-03
+
+### Split Uploads
+
+- Added split upload resume snapshots so retries can reuse completed parts.
+- Added transfer failure classification for clearer upload/download logs.
+- Improved split upload cleanup and retry behavior for unstable transfers.
+
+## [1.9.18] - 2026-07-02
+
+### Split Files
+
+- Added split manifest validation and health checks for split file operations.
+- Improved upload retry handling and transfer logging.
+- Added the desktop Logs view for upload/download failure details.
+
 ## [1.9.17] - 2026-07-02
 
 ### Uploads

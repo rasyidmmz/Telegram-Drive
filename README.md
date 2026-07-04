@@ -2,11 +2,13 @@
 
 **Teledrive** is a Windows 11 64-bit fork of Telegram Drive focused on using
 Telegram as a personal media and file drive, with better video playback,
-upload reliability, and a Windows-only release pipeline.
+upload reliability, shipped large-file splitting, clearer transfer failure
+logs, and a Windows-only release pipeline.
 
 This fork is intentionally renamed from the upstream **Telegram Drive** app so
 it can be installed on the same machine without colliding with the original
-application.
+application. It is also ads-free: unlike the origin repo build with an ad
+banner, Teledrive does not show in-app ads.
 
 ## Install Identity
 
@@ -33,6 +35,7 @@ Main differences:
   from the active build.
 - App branding and installer identity were changed to `Teledrive`.
 - The release workflow builds only the Windows NSIS installer.
+- Ads-free desktop UI: the origin repo's ad banner is not included.
 - MPV is bundled as a sidecar so HEVC/H.265 video playback does not depend on
   the browser video codec stack.
 - Video files open through MPV using the local stream endpoint.
@@ -40,8 +43,10 @@ Main differences:
   desktop metadata badges.
 - Upload reliability was improved with queue cooldown, retry/backoff handling,
   `FLOOD_WAIT` sleep behavior, and bandwidth throttling.
-- Telegram's single-file upload limit is handled with a clear error message.
-  Automatic split-file upload is not in `main` yet.
+- Files above Telegram's single-file limit are uploaded as split parts with a
+  `.tdmanifest.json` manifest, then shown as one file in Teledrive.
+- Upload and download failures are visible through the Logs view, combining
+  frontend queue errors with backend transfer logs and failure categories.
 - Windows startup support was added through
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - Android-only JNI and foreground-service code was removed.
@@ -54,25 +59,27 @@ HEVC/H.265 content.
 
 Current behavior:
 
-- Normal-size MP4/MKV files can be uploaded through the current upload flow.
+- Normal-size files upload directly through Telegram.
+- Files above Telegram's single-file limit are split into 512 MB part messages
+  plus a `.tdmanifest.json` manifest. Failed split uploads can be retried to
+  reuse completed parts.
+- Split downloads read the manifest, validate the parts, and reassemble the
+  original file at the selected save path.
 - Local metadata probing logs MP4/MKV duration and resolution when available.
 - Desktop file cards can show MP4/MKV duration and resolution badges.
 - Playback prefers MPV through the local stream server.
-
-Large files above Telegram's single-file limit are still blocked in `main`.
-The planned split-file design lives separately in the
-`codex/large-file-parts-upload` branch and is not part of the stable Windows
-release yet.
 
 ## Features
 
 - Telegram-backed file storage using Saved Messages and private channels.
 - Folder creation and management.
 - Drag-and-drop uploads.
+- Direct uploads plus split large-file uploads.
 - Upload and download queues.
 - Retry/backoff controls for unstable connections.
 - Automatic `FLOOD_WAIT` handling.
 - Upload/download bandwidth throttles.
+- Logs view for upload/download failure details.
 - MPV-based video/audio playback.
 - MP4/MKV metadata badges.
 - PDF preview.
@@ -123,11 +130,10 @@ npm run tauri build
 
 ## Repository Notes
 
-- `main` is the stable Windows-only branch.
-- `implementation_plan.md` tracks the current split between stable work and
-  the future large-file split/upload branch.
-- `codex/large-file-parts-upload` is reserved for the separate large-file parts
-  feature.
+- `main` is the stable Windows-only branch and includes split large-file
+  upload/download support.
+- `implementation_plan.md` is retained as implementation context; this README
+  describes the current `main` behavior.
 
 ## License
 

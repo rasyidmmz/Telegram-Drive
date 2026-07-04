@@ -26,16 +26,24 @@ jobs:
         id: changelog
         shell: pwsh
         run: |
+          $version = "${{ steps.get_version.outputs.VERSION }}"
+          $header = "^## \[$([regex]::Escape($version))\]"
           $lines = Get-Content CHANGELOG.md
           $body = New-Object System.Collections.Generic.List[string]
           $found = $false
           foreach ($line in $lines) {
             if ($line -match '^## \[') {
               if ($found) { break }
-              $found = $true
+              if ($line -match $header) { $found = $true }
               continue
             }
             if ($found) { $body.Add($line) }
+          }
+          if (-not $found) {
+            throw "CHANGELOG.md does not contain an entry for $version"
+          }
+          if ($body.Count -eq 0) {
+            throw "CHANGELOG.md entry for $version is empty"
           }
           "BODY<<EOF" >> $env:GITHUB_OUTPUT
           ($body -join "`n") >> $env:GITHUB_OUTPUT
