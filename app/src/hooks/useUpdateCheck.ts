@@ -6,23 +6,32 @@ interface UpdateState {
     checking: boolean;
     available: boolean;
     downloading: boolean;
+    installing: boolean;
+    restarting: boolean;
     progress: number;
     error: string | null;
     version: string | null;
 }
 
-export function useUpdateCheck() {
+interface UseUpdateCheckOptions {
+    autoCheck?: boolean;
+}
+
+export function useUpdateCheck(options: UseUpdateCheckOptions = {}) {
+    const { autoCheck = true } = options;
     const [state, setState] = useState<UpdateState>({
         checking: false,
         available: false,
         downloading: false,
+        installing: false,
+        restarting: false,
         progress: 0,
         error: null,
         version: null,
     });
     const [update, setUpdate] = useState<Update | null>(null);
 
-    const checkForUpdates = useCallback(async () => {
+    const checkForUpdates = useCallback(async (): Promise<Update | null | undefined> => {
         setState(s => ({ ...s, checking: true, error: null }));
         try {
             const updateInfo = await check();
@@ -34,23 +43,27 @@ export function useUpdateCheck() {
                     available: true,
                     version: updateInfo.version,
                 }));
+                return updateInfo;
             } else {
-                setState(s => ({ ...s, checking: false, available: false }));
+                setState(s => ({ ...s, checking: false, available: false, version: null }));
+                return null;
             }
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to check for updates';
             setState(s => ({
                 ...s,
                 checking: false,
+                available: false,
                 error: message,
             }));
+            return undefined;
         }
     }, []);
 
     const downloadAndInstall = useCallback(async () => {
         if (!update) return;
 
-        setState(s => ({ ...s, downloading: true, progress: 0 }));
+        setState(s => ({ ...s, downloading: true, installing: false, restarting: false, error: null, progress: 0 }));
         let downloaded = 0;
         let contentLength = 0;
 
@@ -66,31 +79,37 @@ export function useUpdateCheck() {
                         const pct = Math.round((downloaded / contentLength) * 100);
                         setState(s => ({ ...s, progress: Math.min(pct, 100) }));
                     }
+                } else if (event.event === 'Finished') {
+                    setState(s => ({ ...s, downloading: false, installing: true, progress: 100 }));
                 }
             });
 
+            setState(s => ({ ...s, installing: false, restarting: true, progress: 100 }));
             await relaunch();
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Failed to install update';
             setState(s => ({
                 ...s,
                 downloading: false,
+                installing: false,
+                restarting: false,
                 error: message,
             }));
         }
     }, [update]);
 
     const dismissUpdate = useCallback(() => {
-        setState(s => ({ ...s, available: false }));
+        setState(s => ({ ...s, available: false, error: null }));
         setUpdate(null);
     }, []);
 
     useEffect(() => {
+        if (!autoCheck) return;
         const timer = setTimeout(() => {
             checkForUpdates().catch(console.error);
         }, 5000);
         return () => clearTimeout(timer);
-    }, [checkForUpdates]);
+    }, [autoCheck, checkForUpdates]);
 
     return {
         ...state,

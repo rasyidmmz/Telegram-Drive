@@ -1,6 +1,7 @@
 use actix_web::{get, web, App, HttpServer, HttpResponse, Responder};
 use actix_cors::Cors;
 use crate::commands::TelegramState;
+use crate::commands::streaming::stream_token_header_name;
 use crate::commands::utils::resolve_peer;
 use grammers_client::types::Media;
 use grammers_client::types::Peer;
@@ -483,9 +484,15 @@ async fn stream_media(
 ) -> impl Responder {
     let (folder_id_str, message_id) = path.into_inner();
 
+    let header_token = req
+        .headers()
+        .get(stream_token_header_name())
+        .and_then(|value| value.to_str().ok());
+    let request_token = query.token.as_deref().or(header_token);
+
     // Validate session token
-    match &query.token {
-        Some(t) if t == &token_data.token => {
+    match request_token {
+        Some(t) if t == token_data.token.as_str() => {
             log::debug!("Stream request: Token validated successfully for msg {}", message_id);
         },
         _ => {

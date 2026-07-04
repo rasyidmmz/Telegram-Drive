@@ -24,8 +24,10 @@ type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 function AppContent() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
   const { theme } = useTheme();
-  const { available, version, downloading, progress, downloadAndInstall, dismissUpdate } = useUpdateCheck();
   const { settings, updateSetting, isLoaded } = useSettings();
+  const { available, version, downloading, installing, restarting, progress, error: updateError, downloadAndInstall, dismissUpdate } = useUpdateCheck({
+    autoCheck: isLoaded && settings.autoUpdate,
+  });
   const { i18n } = useTranslation();
 
   // Handle active language and RTL direction changes
@@ -168,7 +170,10 @@ function AppContent() {
         available={available}
         version={version}
         downloading={downloading}
+        installing={installing}
+        restarting={restarting}
         progress={progress}
+        error={updateError}
         onUpdate={downloadAndInstall}
         onDismiss={dismissUpdate}
       />

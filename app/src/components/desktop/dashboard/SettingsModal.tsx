@@ -4,11 +4,10 @@ import { X, RotateCcw, Download, Upload, Trash2, HardDrive, Globe, Key, Copy, Ch
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { toast } from 'sonner';
-import { check, Update } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
 import { useSettings } from '../../../context/SettingsContext';
 import { useConfirm } from '../../../context/ConfirmContext';
 import { useTranslation } from 'react-i18next';
+import { useUpdateCheck } from '../../../hooks/useUpdateCheck';
 import { LANGUAGES } from '../../../i18n/languages';
 import { ShareInfo, CacheEntry, DetailedCacheInfo } from '../../../types';
 import { version as appVersion } from '../../../../package.json';
@@ -46,12 +45,18 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [proxyStatus, setProxyStatus] = useState<{ reachable: boolean; latency_ms: number } | null>(null);
     const [isTestingProxy, setIsTestingProxy] = useState(false);
 
-    // Update check state
-    const [updateChecking, setUpdateChecking] = useState(false);
-    const [updateAvailable, setUpdateAvailable] = useState<Update | null>(null);
-    const [updateVersion, setUpdateVersion] = useState<string | null>(null);
-    const [updateDownloading, setUpdateDownloading] = useState(false);
-    const [updateProgress, setUpdateProgress] = useState(0);
+    const {
+        checking: updateChecking,
+        available: updateAvailable,
+        downloading: updateDownloading,
+        installing: updateInstalling,
+        restarting: updateRestarting,
+        progress: updateProgress,
+        version: updateVersion,
+        error: updateError,
+        checkForUpdates,
+        downloadAndInstall,
+    } = useUpdateCheck({ autoCheck: false });
 
     // Reconnect state
     const [reconnecting, setReconnecting] = useState(false);
@@ -60,56 +65,18 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [diagLoading, setDiagLoading] = useState(false);
 
     const handleCheckForUpdates = useCallback(async () => {
-        setUpdateChecking(true);
-        try {
-            const updateInfo = await check();
-            if (updateInfo) {
-                setUpdateAvailable(updateInfo);
-                setUpdateVersion(updateInfo.version);
-                toast.success(t('settings.update_available_toast', { version: updateInfo.version }));
-            } else {
-                setUpdateAvailable(null);
-                setUpdateVersion(null);
-                toast.success(t('settings.latest_version_toast'));
-            }
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            if (msg.includes('dev') || msg.includes('no current version')) {
-                toast.info(t('settings.update_prod_only_toast'));
-            } else {
-                toast.error(t('settings.update_check_failed_toast', { error: msg }));
-            }
-        } finally {
-            setUpdateChecking(false);
+        const updateInfo = await checkForUpdates();
+        if (updateInfo === undefined) return;
+        if (updateInfo) {
+            toast.success(t('settings.update_available_toast', { version: updateInfo.version }));
+        } else {
+            toast.success(t('settings.latest_version_toast'));
         }
-    }, [t]);
+    }, [checkForUpdates, t]);
 
     const handleInstallUpdate = useCallback(async () => {
-        if (!updateAvailable) return;
-        setUpdateDownloading(true);
-        setUpdateProgress(0);
-        let downloaded = 0;
-        let contentLength = 0;
-        try {
-            await updateAvailable.downloadAndInstall((event) => {
-                if (event.event === 'Started') {
-                    const data = event.data as { contentLength?: number };
-                    contentLength = data.contentLength || 0;
-                } else if (event.event === 'Progress') {
-                    const data = event.data as { chunkLength?: number };
-                    downloaded += data.chunkLength || 0;
-                    if (contentLength > 0) {
-                        setUpdateProgress(Math.min(Math.round((downloaded / contentLength) * 100), 100));
-                    }
-                }
-            });
-            await relaunch();
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            toast.error(t('settings.update_failed_toast', { error: msg }));
-            setUpdateDownloading(false);
-        }
-    }, [updateAvailable, t]);
+        await downloadAndInstall();
+    }, [downloadAndInstall]);
 
     // Sharing settings state
     const [shares, setShares] = useState<ShareInfo[]>([]);
@@ -924,7 +891,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 </p>
                                             </div>
                                         </div>
-                                        {updateAvailable && !updateDownloading ? (
+                                        {updateAvailable && !updateDownloading && !updateInstalling && !updateRestarting ? (
                                             <button
                                                 onClick={handleInstallUpdate}
                                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-telegram-primary text-white hover:bg-telegram-primary/90 transition"
@@ -932,10 +899,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                                 <Download className="w-3 h-3" />
                                                 {t('settings.update_restart')}
                                             </button>
-                                        ) : updateDownloading ? (
+                                        ) : updateDownloading || updateInstalling || updateRestarting ? (
                                             <div className="flex items-center gap-2">
                                                 <RefreshCw className="w-3.5 h-3.5 text-telegram-primary animate-spin" />
-                                                <span className="text-xs text-telegram-primary font-mono">{updateProgress}%</span>
+                                                <span className="text-xs text-telegram-primary font-mono">
+                                                    {updateRestarting ? 'restart' : updateInstalling ? 'install' : `${updateProgress}%`}
+                                                </span>
                                             </div>
                                         ) : (
                                             <button
@@ -948,13 +917,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             </button>
                                         )}
                                     </div>
-                                    {updateDownloading && (
+                                    {(updateDownloading || updateInstalling || updateRestarting) && (
                                         <div className="w-full h-1.5 bg-telegram-border rounded-full overflow-hidden">
                                             <div
                                                 className="h-full bg-telegram-primary rounded-full transition-all duration-300"
                                                 style={{ width: `${updateProgress}%` }}
                                             />
                                         </div>
+                                    )}
+                                    {updateError && (
+                                        <p className="text-xs text-red-400 break-words">{updateError}</p>
                                     )}
                                 </div>
                             </section>

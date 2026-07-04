@@ -5,7 +5,10 @@ interface UpdateBannerProps {
     available: boolean;
     version: string | null;
     downloading: boolean;
+    installing: boolean;
+    restarting: boolean;
     progress: number;
+    error: string | null;
     onUpdate: () => void;
     onDismiss: () => void;
 }
@@ -14,10 +17,14 @@ export function UpdateBanner({
     available,
     version,
     downloading,
+    installing,
+    restarting,
     progress,
+    error,
     onUpdate,
     onDismiss
 }: UpdateBannerProps) {
+    const busy = downloading || installing || restarting;
     return (
         <AnimatePresence>
             {available && (
@@ -31,14 +38,20 @@ export function UpdateBanner({
                         <Sparkles className="w-5 h-5 text-yellow-300 animate-pulse" />
 
                         <span className="text-white font-medium">
-                            {downloading ? (
+                            {restarting ? (
+                                <>Restarting Teledrive...</>
+                            ) : installing ? (
+                                <>Installing update...</>
+                            ) : downloading ? (
                                 <>Downloading update... {progress}%</>
+                            ) : error ? (
+                                <>Update failed: {error}</>
                             ) : (
                                 <>A new version ({version}) is available!</>
                             )}
                         </span>
 
-                        {downloading ? (
+                        {busy ? (
                             <div className="flex items-center gap-2">
                                 <RefreshCw className="w-4 h-4 text-white animate-spin" />
                                 <div className="w-32 h-2 bg-white/30 rounded-full overflow-hidden">
@@ -59,7 +72,7 @@ export function UpdateBanner({
                             </button>
                         )}
 
-                        {!downloading && (
+                        {!busy && (
                             <button
                                 onClick={onDismiss}
                                 className="p-1 text-white/70 hover:text-white transition-colors"
