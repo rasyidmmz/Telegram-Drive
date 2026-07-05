@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, lazy, useState, useEffect, useCallback, useRef } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
@@ -18,7 +18,6 @@ import { PreviewModal } from './dashboard/PreviewModal';
 import { MediaPlayer } from './dashboard/MediaPlayer';
 import { PdfViewer } from './dashboard/PdfViewer';
 import { ArchiveViewerModal } from './dashboard/ArchiveViewerModal';
-import { SettingsModal } from './dashboard/SettingsModal';
 import { ShareDialog } from './dashboard/ShareDialog';
 import { RenameFolderModal } from './dashboard/RenameFolderModal';
 import { RenameFileModal } from './dashboard/RenameFileModal';
@@ -35,6 +34,8 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useSettings } from '../../context/SettingsContext';
 import { useConfirm } from '../../context/ConfirmContext';
 import { recordErrorLog } from '../../errorLogs';
+
+const SettingsModal = lazy(() => import('./dashboard/SettingsModal').then(m => ({ default: m.SettingsModal })));
 
 export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const queryClient = useQueryClient();
@@ -53,6 +54,55 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const { confirm } = useConfirm();
     const viewMode = settings.viewMode;
     const setViewMode = (mode: 'grid' | 'list') => updateSetting('viewMode', mode);
+
+    // Keep backend network settings synced even though SettingsModal is lazy-loaded.
+    useEffect(() => {
+        invoke('cmd_apply_proxy_settings', {
+            enabled: settings.proxyEnabled,
+            proxyType: settings.proxyType,
+            host: settings.proxyHost,
+            port: settings.proxyPort,
+            username: settings.proxyUsername,
+            password: settings.proxyPassword,
+        }).catch(() => {
+            // best-effort sync
+        });
+    }, [
+        settings.proxyEnabled, settings.proxyType, settings.proxyHost,
+        settings.proxyPort, settings.proxyUsername, settings.proxyPassword,
+    ]);
+
+    useEffect(() => {
+        invoke('cmd_apply_vpn_settings', {
+            enabled: settings.vpnMode,
+            timeoutMultiplier: settings.timeoutMultiplier,
+            retryAttempts: settings.retryAttempts,
+            retryBaseBackoffMs: Math.round(settings.retryBaseBackoffSec * 1000),
+            retryMaxBackoffMs: Math.round(settings.retryMaxBackoffSec * 1000),
+            adaptivePolling: settings.adaptivePolling,
+            pollingMinSec: settings.pollingMinSec,
+            pollingMaxSec: settings.pollingMaxSec,
+            preferredDc: settings.preferredDC,
+            dcFallbackAttempts: settings.dcFallbackAttempts,
+            floodWaitRespect: settings.floodWaitRespect,
+            peerCacheSize: settings.peerCacheSize,
+            bandwidthLimitUpKbs: settings.bandwidthLimitUpKBs,
+            bandwidthLimitDownKbs: settings.bandwidthLimitDownKBs,
+            chunkSizeKb: settings.chunkSizeKb,
+            keepAliveIntervalSec: settings.keepAliveIntervalSec,
+            autoDetectVpn: settings.autoDetectVpn,
+            archiveMaxBytes: settings.archiveMaxBytes * 1024 * 1024,
+        }).catch(() => {
+            // best-effort sync
+        });
+    }, [
+        settings.vpnMode, settings.timeoutMultiplier, settings.retryAttempts,
+        settings.retryBaseBackoffSec, settings.retryMaxBackoffSec, settings.adaptivePolling,
+        settings.pollingMinSec, settings.pollingMaxSec, settings.preferredDC,
+        settings.dcFallbackAttempts, settings.floodWaitRespect, settings.peerCacheSize,
+        settings.bandwidthLimitUpKBs, settings.bandwidthLimitDownKBs, settings.chunkSizeKb,
+        settings.keepAliveIntervalSec, settings.autoDetectVpn, settings.archiveMaxBytes,
+    ]);
 
     const [previewFile, setPreviewFile] = useState<TelegramFile | null>(null);
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -770,10 +820,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onRetryItem={retryDownloadItem}
             />
 
-            <SettingsModal
-                isOpen={showSettings}
-                onClose={() => setShowSettings(false)}
-            />
+            {showSettings && (
+                <Suspense fallback={null}>
+                    <SettingsModal
+                        isOpen={showSettings}
+                        onClose={() => setShowSettings(false)}
+                    />
+                </Suspense>
+            )}
 
             <LogsModal
                 isOpen={showLogs}

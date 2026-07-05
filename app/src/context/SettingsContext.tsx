@@ -44,8 +44,6 @@ export interface Settings {
     autoDetectVpn: boolean;
     archiveMaxBytes: number;           // 0 = unlimited, MiB for bulk archive (API)
 
-    // ── Performance ────────────────────────────────────────
-    performanceMode: boolean;        // Disable blur, shadows, and heavy animations
     windowsAutostart: boolean;       // Launch on Windows Startup
 
     // ── Transcode cache ─────────────────────────────────────
@@ -92,7 +90,6 @@ const defaultSettings: Settings = {
     autoDetectVpn: false,
     archiveMaxBytes: 256,  // 256 MiB
 
-    performanceMode: false,
     windowsAutostart: false,
 
     transcodeCacheMaxGb: 5,
@@ -118,8 +115,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 const store = await load('settings.json');
                 const saved = await store.get<Settings>('settings');
                 if (saved) {
+                    const savedSettings = { ...saved } as Partial<Settings> & { performanceMode?: unknown };
+                    delete savedSettings.performanceMode;
                     // Merge with defaults so new keys are always present
-                    const merged = { ...defaultSettings, ...saved };
+                    const merged = { ...defaultSettings, ...savedSettings };
                     // Backward compat: map old 'mtproto' proxyType to 'socks5'
                     if ((merged.proxyType as string) === 'mtproto') {
                         merged.proxyType = 'socks5';

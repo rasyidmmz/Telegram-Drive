@@ -251,9 +251,8 @@ body,
   border-color: var(--color-telegram-primary);
 }
 
-/* ── Performance Mode ──────────────────────────────────────── */
-/* Disables GPU-heavy effects for WebKitGTK / older hardware.  */
-/* Toggle via Settings → General → Performance Mode.           */
+/* ── Default Performance Mode ──────────────────────────────── */
+/* Disables GPU-heavy effects for smoother Windows rendering.  */
 
 .performance-mode *,
 .performance-mode *::before,

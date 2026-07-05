@@ -24,7 +24,7 @@ type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 function AppContent() {
   const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
   const { theme } = useTheme();
-  const { settings, updateSetting, isLoaded } = useSettings();
+  const { settings, isLoaded } = useSettings();
   const { available, version, downloading, installing, restarting, progress, error: updateError, downloadAndInstall, dismissUpdate } = useUpdateCheck({
     autoCheck: isLoaded && settings.autoUpdate,
   });
@@ -38,30 +38,10 @@ function AppContent() {
     document.documentElement.dir = settings.language === 'ar' ? 'rtl' : 'ltr';
   }, [settings.language, isLoaded, i18n]);
 
-  // Performance mode: auto-enable when user has prefers-reduced-motion
+  // Performance mode is the default: keep GPU-heavy effects disabled.
   useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (mediaQuery.matches && !settings.performanceMode) {
-      updateSetting('performanceMode', true);
-    }
-    const handler = (e: MediaQueryListEvent) => {
-      if (e.matches && !settings.performanceMode) {
-        updateSetting('performanceMode', true);
-      }
-    };
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
+    document.body.classList.add('performance-mode');
   }, []);
-
-  // Apply performance-mode class to body (guarded by settings load to avoid flicker)
-  useEffect(() => {
-    if (!isLoaded) return;
-    if (settings.performanceMode) {
-      document.body.classList.add('performance-mode');
-    } else {
-      document.body.classList.remove('performance-mode');
-    }
-  }, [settings.performanceMode, isLoaded]);
 
   // On mount: check for a saved session and auto-restore it.
   // This is the SINGLE source of truth for the initial connection.

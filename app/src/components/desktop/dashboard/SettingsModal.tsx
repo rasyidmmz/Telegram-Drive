@@ -187,66 +187,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         return () => clearInterval(interval);
     }, [isOpen, apiSettings.enabled, fetchApiSettings]);
 
-    // Sync proxy settings to backend whenever they change
-    useEffect(() => {
-        const applyProxy = async () => {
-            try {
-                await invoke('cmd_apply_proxy_settings', {
-                    enabled: settings.proxyEnabled,
-                    proxyType: settings.proxyType,
-                    host: settings.proxyHost,
-                    port: settings.proxyPort,
-                    username: settings.proxyUsername,
-                    password: settings.proxyPassword,
-                });
-            } catch {
-                // best-effort sync
-            }
-        };
-        applyProxy();
-    }, [
-        settings.proxyEnabled, settings.proxyType, settings.proxyHost,
-        settings.proxyPort, settings.proxyUsername, settings.proxyPassword,
-    ]);
-
-    // Sync VPN optimizer settings to backend whenever they change
-    useEffect(() => {
-        const applyVpn = async () => {
-            try {
-                await invoke('cmd_apply_vpn_settings', {
-                    enabled: settings.vpnMode,
-                    timeoutMultiplier: settings.timeoutMultiplier,
-                    retryAttempts: settings.retryAttempts,
-                    retryBaseBackoffMs: Math.round(settings.retryBaseBackoffSec * 1000),
-                    retryMaxBackoffMs: Math.round(settings.retryMaxBackoffSec * 1000),
-                    adaptivePolling: settings.adaptivePolling,
-                    pollingMinSec: settings.pollingMinSec,
-                    pollingMaxSec: settings.pollingMaxSec,
-                    preferredDc: settings.preferredDC,
-                    dcFallbackAttempts: settings.dcFallbackAttempts,
-                    floodWaitRespect: settings.floodWaitRespect,
-                    peerCacheSize: settings.peerCacheSize,
-                    bandwidthLimitUpKbs: settings.bandwidthLimitUpKBs,
-                    bandwidthLimitDownKbs: settings.bandwidthLimitDownKBs,
-                    chunkSizeKb: settings.chunkSizeKb,
-                    keepAliveIntervalSec: settings.keepAliveIntervalSec,
-                    autoDetectVpn: settings.autoDetectVpn,
-                    archiveMaxBytes: settings.archiveMaxBytes * 1024 * 1024,
-                });
-            } catch {
-                // best-effort sync
-            }
-        };
-        applyVpn();
-    }, [
-        settings.vpnMode, settings.timeoutMultiplier, settings.retryAttempts,
-        settings.retryBaseBackoffSec, settings.retryMaxBackoffSec, settings.adaptivePolling,
-        settings.pollingMinSec, settings.pollingMaxSec, settings.preferredDC,
-        settings.dcFallbackAttempts, settings.floodWaitRespect, settings.peerCacheSize,
-        settings.bandwidthLimitUpKBs, settings.bandwidthLimitDownKBs, settings.chunkSizeKb,
-        settings.keepAliveIntervalSec, settings.autoDetectVpn, settings.archiveMaxBytes,
-    ]);
-
     // Poll latency when VPN tab is active
     useEffect(() => {
         if (!isOpen || activeTab !== 'vpn') return;
@@ -508,23 +448,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${settings.hideGroups ? 'bg-telegram-primary' : 'bg-telegram-border'}`}
                                     >
                                         <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${settings.hideGroups ? 'translate-x-5' : 'translate-x-0'}`} />
-                                    </button>
-                                </div>
-
-                                {/* Performance Mode */}
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div className="flex items-center gap-2">
-                                        <Zap className="w-4 h-4 text-telegram-subtext" />
-                                        <div>
-                                            <p className="text-sm text-telegram-text font-medium">{t('settings.performance_mode')}</p>
-                                            <p className="text-xs text-telegram-subtext">{t('settings.performance_mode_desc')}</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => updateSetting('performanceMode', !settings.performanceMode)}
-                                        className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${settings.performanceMode ? 'bg-telegram-primary' : 'bg-telegram-border'}`}
-                                    >
-                                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${settings.performanceMode ? 'translate-x-5' : 'translate-x-0'}`} />
                                     </button>
                                 </div>
 
