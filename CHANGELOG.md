@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.22] - 2026-07-06
+
+### Performance
+
+- Enabled performance mode by default so GPU-heavy blur, shadows, and animations stay disabled without a Settings toggle.
+- Lazy-loaded the Settings modal so the dashboard starts with a smaller initial bundle.
+- Kept proxy and VPN optimizer settings synced from the dashboard while the Settings modal is lazy-loaded.
+
+### Release
+
+- Added the matching changelog entry required by the tag-driven release workflow.
+
 ## [1.9.20] - 2026-07-04
 
 ### Playback
