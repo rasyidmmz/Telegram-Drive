@@ -17,6 +17,16 @@ interface UseUpdateCheckOptions {
     autoCheck?: boolean;
 }
 
+function updateErrorMessage(err: unknown, fallback: string) {
+    if (err instanceof Error && err.message) return err.message;
+    if (typeof err === 'string' && err.trim()) return err;
+    if (err && typeof err === 'object' && 'message' in err) {
+        const message = String((err as { message?: unknown }).message || '').trim();
+        if (message) return message;
+    }
+    return fallback;
+}
+
 export function useUpdateCheck(options: UseUpdateCheckOptions = {}) {
     const { autoCheck = true } = options;
     const [state, setState] = useState<UpdateState>({
@@ -49,7 +59,7 @@ export function useUpdateCheck(options: UseUpdateCheckOptions = {}) {
                 return null;
             }
         } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Failed to check for updates';
+            const message = updateErrorMessage(err, 'Failed to check for updates');
             setState(s => ({
                 ...s,
                 checking: false,
@@ -84,14 +94,25 @@ export function useUpdateCheck(options: UseUpdateCheckOptions = {}) {
                 }
             });
 
-            setState(s => ({ ...s, installing: false, restarting: true, progress: 100 }));
-            await relaunch();
         } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : 'Failed to install update';
+            const message = updateErrorMessage(err, 'Failed to install update');
             setState(s => ({
                 ...s,
                 downloading: false,
                 installing: false,
+                restarting: false,
+                error: message,
+            }));
+            return;
+        }
+
+        setState(s => ({ ...s, installing: false, restarting: true, progress: 100 }));
+        try {
+            await relaunch();
+        } catch (err: unknown) {
+            const message = updateErrorMessage(err, 'Update installed, but Teledrive could not restart automatically');
+            setState(s => ({
+                ...s,
                 restarting: false,
                 error: message,
             }));

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.23] - 2026-07-06
+
+### Updates
+
+- Improved Windows updater permissions by using the default process permission set required for relaunch.
+- Explicitly kept the Windows updater install mode passive for unattended update installs.
+- Preserved updater error details from Tauri so install and restart failures are no longer collapsed into a generic message.
+
 ## [1.9.22] - 2026-07-06
 
 ### Performance
