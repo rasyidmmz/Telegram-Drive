@@ -124,6 +124,10 @@ jobs:
           Remove-Item mpv.zip
           Write-Host "MPV for Windows sidecar configured."
 
+      - name: Setup Whisper Resources
+        run: node setup-whisper.js
+        working-directory: app
+
       - name: Install frontend dependencies
         working-directory: app
         run: npm install

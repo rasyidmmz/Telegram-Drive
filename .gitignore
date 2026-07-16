@@ -8,6 +8,7 @@ dist/
 /app/src-tauri/target/
 /app/src-tauri/gen/
 **/*.rs.bk
+/app/src-tauri/resources/
 
 # Editors
 .vscode/

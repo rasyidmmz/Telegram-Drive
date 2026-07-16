@@ -41,6 +41,31 @@
       ]
     }
   },
+  "identifier": "com.rasyidmmz.teledrive",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Teledrive",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 1000,
+        "minHeight": 700,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' https: http://localhost:* https://asset.localhost http://asset.localhost; media-src 'self' blob: http://localhost:*; img-src 'self' data: blob: asset: https: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' blob: https:; frame-src 'self' blob: https:; worker-src 'self' blob:;",
+      "capabilities": [
+        "default"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
     "targets": [
@@ -49,6 +74,9 @@
     "createUpdaterArtifacts": true,
     "externalBin": [
       "bin/mpv"
+    ],
+    "resources": [
+      "resources/whisper/**/*"
     ],
     "icon": [
       "icons/32x32.png",
