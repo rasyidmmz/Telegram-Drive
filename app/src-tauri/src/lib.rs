@@ -286,6 +286,7 @@ pub fn run() {
             let loaded_config = vpn_optimizer::load_network_config(app.handle());
             let net_config = Arc::new(vpn_optimizer::NetworkConfig::new_with_config(loaded_config));
             app.manage(net_config.clone());
+            app.manage(commands::english_cc::EnglishCcManager::new());
 
             // Auto-start SOCKS5 bridge on startup if HTTP/HTTPS proxy is configured
             {
@@ -387,6 +388,9 @@ pub fn run() {
             commands::cmd_get_preview,
             commands::cmd_clean_preview_cache,
             commands::cmd_logout,
+            commands::cmd_generate_english_cc,
+            commands::cmd_get_english_cc_status,
+            commands::cmd_cancel_english_cc,
             commands::cmd_scan_folders,
             commands::cmd_search_global,
             commands::cmd_check_connection,
