@@ -1831,6 +1831,7 @@ pub async fn cmd_check_split_file_health(
 pub async fn cmd_delete_file(
     message_id: i32,
     folder_id: Option<i64>,
+    app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
 ) -> Result<bool, String> {
     let client_opt = { state.client.lock().await.clone() };
@@ -1863,6 +1864,14 @@ pub async fn cmd_delete_file(
     }
 
     delete_message_ids(&client, &peer, &ids, "Delete").await?;
+
+    if let Ok(app_dir) = app_handle.path().app_data_dir() {
+        let srt_path = app_dir.join("streaming").join("captions").join(format!("{}_{}.en.srt", folder_id.unwrap_or(0), message_id));
+        if srt_path.exists() {
+            let _ = std::fs::remove_file(srt_path);
+        }
+    }
+
     Ok(true)
 }
 

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Eye, HardDrive, Trash2, FolderOpen, Pencil, Play, FileText, Link, Copy, ArrowRightLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { TelegramFile, TelegramFolder } from '../../../types';
-import { isMediaFile, isPdfFile } from '../../../utils';
+import { isMediaFile, isPdfFile, isVideoFile } from '../../../utils';
 import { toast } from 'sonner';
 
 interface ContextMenuProps {
@@ -18,9 +18,26 @@ interface ContextMenuProps {
     onMove?: () => void;
     folders?: TelegramFolder[];
     activeFolderId?: number | null;
+    onGenerateCc?: () => void;
+    hasCc?: boolean;
 }
 
-export function ContextMenu({ x, y, file, onClose, onDownload, onDelete, onPreview, onShare, onRename, onMove, folders, activeFolderId }: ContextMenuProps) {
+export function ContextMenu({
+    x,
+    y,
+    file,
+    onClose,
+    onDownload,
+    onDelete,
+    onPreview,
+    onShare,
+    onRename,
+    onMove,
+    folders,
+    activeFolderId,
+    onGenerateCc,
+    hasCc
+}: ContextMenuProps) {
     const [adjustedPos, setAdjustedPos] = useState({ x, y });
     const menuRef = useRef<HTMLDivElement>(null);
     const { t } = useTranslation();
@@ -174,6 +191,19 @@ export function ContextMenu({ x, y, file, onClose, onDownload, onDelete, onPrevi
                 <button disabled className="flex items-center gap-2 px-2 py-1.5 text-sm text-telegram-subtext hover:bg-telegram-hover rounded transition-colors text-left w-full cursor-not-allowed opacity-50">
                     <Pencil className="w-4 h-4" />
                     {t('files.rename')}
+                </button>
+            )}
+
+            {file.type !== 'folder' && isVideoFile(file.name) && onGenerateCc && (
+                <button
+                    onClick={() => {
+                        onGenerateCc();
+                        onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-sm text-telegram-text hover:bg-telegram-hover rounded transition-colors text-left w-full"
+                >
+                    <Play className="w-4 h-4 text-purple-400 rotate-90" />
+                    {hasCc ? "Regenerate English CC" : "Generate English CC"}
                 </button>
             )}
 

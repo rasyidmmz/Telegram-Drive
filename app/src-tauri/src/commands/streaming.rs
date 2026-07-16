@@ -38,7 +38,12 @@ pub fn cmd_get_stream_info(config: State<'_, StreamConfig>) -> StreamInfo {
 }
 
 #[tauri::command]
-pub fn cmd_play_in_mpv(url: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+pub fn cmd_play_in_mpv(
+    url: String,
+    message_id: Option<i32>,
+    folder_id: Option<i64>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
     let watch_later_dir = app_handle
         .path()
         .app_data_dir()
@@ -47,7 +52,17 @@ pub fn cmd_play_in_mpv(url: String, app_handle: tauri::AppHandle) -> Result<(), 
     if let Some(dir) = &watch_later_dir {
         let _ = std::fs::create_dir_all(dir);
     }
-    let args = build_mpv_args(&url, watch_later_dir.as_deref());
+    let mut args = build_mpv_args(&url, watch_later_dir.as_deref());
+
+    if let (Some(msg_id), Some(f_id)) = (message_id, folder_id) {
+        if let Ok(app_dir) = app_handle.path().app_data_dir() {
+            let srt_path = app_dir.join("streaming").join("captions").join(format!("{}_{}.en.srt", f_id, msg_id));
+            if srt_path.exists() {
+                args.push(format!("--sub-file={}", srt_path.to_string_lossy()));
+            }
+        }
+    }
+
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
     // Try to launch bundled sidecar mpv

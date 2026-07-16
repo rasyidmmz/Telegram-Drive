@@ -1327,6 +1327,10 @@ pub async fn cmd_clear_transcode_cache(
             }
 
             log::info!("Transcode: Cleared all cache ({} entries)", removed_count);
+            let captions_dir = manager.cache_root.join("captions");
+            if captions_dir.exists() {
+                let _ = std::fs::remove_dir_all(&captions_dir);
+            }
             Ok(format!("Cleared all transcode cache ({} entries)", removed_count))
         }
         // Clear all variants for a specific file
@@ -1342,6 +1346,10 @@ pub async fn cmd_clear_transcode_cache(
             }
 
             log::info!("Transcode: Cleared cache for file {}", fk);
+            let captions_file = manager.cache_root.join("captions").join(format!("{}.en.srt", fk));
+            if captions_file.exists() {
+                let _ = std::fs::remove_file(&captions_file);
+            }
             Ok(format!("Cleared cache for {}", fk))
         }
         // Clear a specific quality variant for a file

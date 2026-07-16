@@ -48,7 +48,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
     // Automatically trigger MPV launch when streamUrl is ready
     useEffect(() => {
         if (isMedia && streamUrl && !isPlayingInMpv && !mpvError) {
-            invoke('cmd_play_in_mpv', { url: streamUrl })
+            invoke('cmd_play_in_mpv', { url: streamUrl, messageId: file.id, folderId: file.folder_id })
                 .then(() => {
                     setIsPlayingInMpv(true);
                 })
@@ -59,7 +59,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     toast.error(`Gagal memutar di MPV: ${errMsg}`);
                 });
         }
-    }, [isMedia, streamUrl, isPlayingInMpv, mpvError]);
+    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id]);
 
     // Handle keyboard shortcuts (Left/Right arrow keys for navigation, Esc for close)
     useEffect(() => {
@@ -158,7 +158,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                             <button
                                 onClick={() => {
                                     if (streamUrl) {
-                                        invoke('cmd_play_in_mpv', { url: streamUrl }).catch(err => {
+                                        invoke('cmd_play_in_mpv', { url: streamUrl, messageId: file.id, folderId: file.folder_id }).catch(err => {
                                             toast.error(`Gagal membuka kembali MPV: ${err}`);
                                         });
                                     }

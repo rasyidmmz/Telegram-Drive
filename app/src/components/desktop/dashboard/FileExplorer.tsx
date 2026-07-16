@@ -8,6 +8,8 @@ import { EmptyState } from './EmptyState';
 import { TelegramFile, TelegramFolder } from '../../../types';
 import { ContextMenu } from './ContextMenu';
 import { FileListItem } from './FileListItem';
+import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 
 type SortField = 'name' | 'size' | 'date';
 type SortDirection = 'asc' | 'desc';
@@ -78,7 +80,7 @@ export function FileExplorer({
 }: FileExplorerProps) {
     const [sortField, setSortField] = useState<SortField>('name');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: TelegramFile } | null>(null);
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; file: TelegramFile; hasCc?: boolean } | null>(null);
     const { t } = useTranslation();
     const { settings } = useSettings();
 
@@ -92,11 +94,70 @@ export function FileExplorer({
     const cardWidth = (containerWidth - (GAP * (columns - 1))) / columns;
     const cardHeight = cardWidth * 0.75; // aspect-[4/3]
 
-    const handleContextMenu = useCallback((e: React.MouseEvent, file: TelegramFile) => {
+    const handleContextMenu = useCallback(async (e: React.MouseEvent, file: TelegramFile) => {
         e.preventDefault();
         e.stopPropagation();
-        setContextMenu({ x: e.clientX, y: e.clientY, file });
+        let hasCc = false;
+        if (file.type !== 'folder') {
+            try {
+                const status: any = await invoke('cmd_get_english_cc_status', { messageId: file.id, folderId: file.folder_id });
+                if (status.phase === 'ready' || status.cached) {
+                    hasCc = true;
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+        setContextMenu({ x: e.clientX, y: e.clientY, file, hasCc });
     }, []);
+
+    const handleGenerateCc = async (file: TelegramFile) => {
+        let toastId = toast.loading("Memulai pembuatan subtitle...", {
+            action: {
+                label: "Batal",
+                onClick: () => {
+                    invoke('cmd_cancel_english_cc', { messageId: file.id, folderId: file.folder_id });
+                }
+            }
+        });
+
+        try {
+            await invoke('cmd_generate_english_cc', { messageId: file.id, folderId: file.folder_id, force: true });
+            
+            // Poll every 750ms
+            const interval = setInterval(async () => {
+                try {
+                    const status: any = await invoke('cmd_get_english_cc_status', { messageId: file.id, folderId: file.folder_id });
+                    if (status.phase === 'ready') {
+                        clearInterval(interval);
+                        toast.success("Subtitle English CC berhasil dibuat!", { id: toastId });
+                    } else if (status.phase === 'error') {
+                        clearInterval(interval);
+                        toast.error(`Gagal membuat subtitle: ${status.error}`, { id: toastId });
+                    } else if (status.phase === 'cancelled') {
+                        clearInterval(interval);
+                        toast.info("Pembuatan subtitle dibatalkan.", { id: toastId });
+                    } else {
+                        const phaseText = status.phase === 'extracting' ? 'Mengekstrak audio' : 'Mentranskripsi';
+                        toast.loading(`${phaseText}: ${Math.round(status.progress || 0)}%`, {
+                            id: toastId,
+                            action: {
+                                label: "Batal",
+                                onClick: () => {
+                                    invoke('cmd_cancel_english_cc', { messageId: file.id, folderId: file.folder_id });
+                                }
+                            }
+                        });
+                    }
+                } catch (err) {
+                    clearInterval(interval);
+                    toast.error(`Error pemantauan status: ${err}`, { id: toastId });
+                }
+            }, 750);
+        } catch (err) {
+            toast.error(`Gagal memulai: ${err}`, { id: toastId });
+        }
+    };
 
     const sortedFiles = useMemo(() => {
         return [...files].sort((a, b) => {
@@ -453,6 +514,8 @@ export function FileExplorer({
                     } : undefined}
                     folders={folders}
                     activeFolderId={activeFolderId}
+                    onGenerateCc={() => handleGenerateCc(contextMenu.file)}
+                    hasCc={contextMenu.hasCc}
                 />
             )}
         </div>
