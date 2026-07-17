@@ -6090,7 +6090,7 @@ dependencies = [
 
 [[package]]
 name = "teledrive"
-version = "1.9.25"
+version = "1.9.27"
 dependencies = [
  "actix-cors",
  "actix-files",

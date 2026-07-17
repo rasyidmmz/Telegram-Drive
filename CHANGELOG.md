@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.9.27] - 2026-07-17
+
+### Updater Recovery
+
+- Corrected the embedded updater public key so it matches the private key used to sign Windows releases.
+- Added a release preflight that signs a probe file and blocks publication when the configured public key, signing secret, or installer identity does not match.
+- Kept Teledrive upgrades in place with a stable product name and identifier, NSIS `currentUser` installation, passive updates, and automatic relaunch without requiring an uninstall.
+- Removed duplicated Tauri configuration blocks that could make future installer identity changes ambiguous.
+
+### One-Time Installation Notice
+
+- Builds with the previous mismatched public key cannot authenticate this corrective update. Install the v1.9.27 Windows x64 installer manually once over the existing Teledrive installation; uninstalling first is not required. Future in-app updates will use the corrected signing chain.
+
 ## [1.9.25] - 2026-07-17
 
 ### Large File Playback
