@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use tokio::sync::{Mutex, oneshot};
 use serde::{Serialize, Deserialize};
 use tauri::{State, Manager};
-use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::io::AsyncBufReadExt;
 use grammers_client::types::Media;
@@ -321,6 +320,7 @@ pub async fn cmd_generate_english_cc(
 
     let manager_state_clone = manager.state.clone();
     let app_handle_clone = app_handle.clone();
+    let job_file_key = file_key.clone();
     
     tauri::async_runtime::spawn(async move {
         let run_result = async {
@@ -346,9 +346,9 @@ pub async fn cmd_generate_english_cc(
             let token = Some(stream_config.token.as_str());
 
             let temp_dir = std::env::temp_dir();
-            let wav_path = temp_dir.join(format!("{}_temp.wav", file_key));
-            let srt_temp_base = temp_dir.join(format!("{}_temp", file_key));
-            let srt_temp_file = temp_dir.join(format!("{}_temp.srt", file_key));
+            let wav_path = temp_dir.join(format!("{}_temp.wav", job_file_key));
+            let srt_temp_base = temp_dir.join(format!("{}_temp", job_file_key));
+            let srt_temp_file = temp_dir.join(format!("{}_temp.srt", job_file_key));
 
             let _ = std::fs::remove_file(&wav_path);
             let _ = std::fs::remove_file(&srt_temp_file);

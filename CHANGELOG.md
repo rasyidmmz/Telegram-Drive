@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.9.25] - 2026-07-17
+
+### Large File Playback
+
+- Fixed existing split MKV/MP4 uploads appearing as tiny JSON files and failing to open in MPV when Telegram did not preserve the manifest filename suffix.
+- Added legacy manifest detection using the Telegram document MIME type, size, and original video caption so affected uploads can be recognized without uploading them again.
+- Changed new split uploads to use a short, stable internal manifest filename and shared the same manifest detection across listing, streaming, download, move, delete, and REST operations.
+
+### English Captions
+
+- Added local offline English subtitle generation with audio extraction, Whisper transcription, cancellation, cleanup, cached SRT reuse, and desktop progress controls.
+
+### Build Reliability
+
+- Fixed Rust compilation blockers in file cleanup and English caption job handling.
+- Synchronized the application, Tauri, Rust package, and lockfile versions for the Windows release.
+
 ## [1.9.23] - 2026-07-06
 
 ### Updates

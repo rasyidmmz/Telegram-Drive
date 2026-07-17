@@ -1,4 +1,4 @@
-use tauri::{State, Emitter};
+use tauri::{Emitter, Manager, State};
 use std::sync::Arc;
 use grammers_client::types::{Media, Peer};
 use grammers_client::InputMessage;
@@ -6,13 +6,15 @@ use grammers_tl_types as tl;
 use crate::TelegramState;
 use crate::models::{
     FileMetadata, FolderMetadata, SplitManifest, SplitPart, SPLIT_MANIFEST_SUFFIX,
-    SPLIT_MANIFEST_VERSION, SPLIT_PART_CAPTION_PREFIX,
+    SPLIT_MANIFEST_UPLOAD_NAME, SPLIT_MANIFEST_VERSION, SPLIT_PART_CAPTION_PREFIX,
 };
 use crate::bandwidth::BandwidthManager;
 use crate::commands::utils::{resolve_peer, map_error};
 use crate::vpn_optimizer::{NetworkConfig, backoff_ms};
 use crate::transfer_retry::{should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
-use crate::split_manifest::validate_split_manifest;
+use crate::split_manifest::{
+    is_split_manifest_candidate, validate_split_manifest, MAX_SPLIT_MANIFEST_BYTES,
+};
 use crate::split_upload_resume::{
     clear_split_upload_state, expected_split_part_size, load_split_upload_state,
     save_split_upload_state, split_upload_state_path, SplitUploadResumePart,
@@ -442,7 +444,7 @@ async fn download_manifest_bytes(
     while let Some(chunk) = iter.next().await.transpose() {
         let bytes = chunk.map_err(|e| map_error(&e))?;
         out.extend_from_slice(&bytes);
-        if out.len() > 1024 * 1024 {
+        if out.len() as u64 > MAX_SPLIT_MANIFEST_BYTES {
             return Err("Split manifest is too large".to_string());
         }
     }
@@ -452,9 +454,17 @@ async fn download_manifest_bytes(
 pub(crate) async fn split_manifest_from_media(
     client: &grammers_client::Client,
     media: &Media,
+    caption: &str,
 ) -> Option<SplitManifest> {
     match media {
-        Media::Document(d) if d.name().ends_with(SPLIT_MANIFEST_SUFFIX) => {
+        Media::Document(d)
+            if is_split_manifest_candidate(
+                d.name(),
+                d.mime_type(),
+                d.size() as u64,
+                caption,
+            ) =>
+        {
             let bytes = download_manifest_bytes(client, media).await.ok()?;
             let manifest: SplitManifest = serde_json::from_slice(&bytes).ok()?;
             if validate_split_manifest(&manifest).is_ok() {
@@ -857,7 +867,7 @@ async fn move_split_file(
         client,
         target_peer,
         &manifest_path_str,
-        format!("{}{}", target_manifest.filename, SPLIT_MANIFEST_SUFFIX),
+        SPLIT_MANIFEST_UPLOAD_NAME.to_string(),
         target_manifest.filename.clone(),
         net_config.upload_limit_bytes_per_sec(),
         net_config,
@@ -1126,7 +1136,7 @@ async fn upload_large_file_split(
         client,
         &peer,
         &manifest_path_str,
-        format!("{}{}", file_name, SPLIT_MANIFEST_SUFFIX),
+        SPLIT_MANIFEST_UPLOAD_NAME.to_string(),
         file_name.clone(),
         limit,
         net_config,
@@ -1820,7 +1830,7 @@ pub async fn cmd_check_split_file_health(
     let Some(media) = msg.media() else {
         return Ok(SplitHealthReport::not_split());
     };
-    let Some(manifest) = split_manifest_from_media(&client, &media).await else {
+    let Some(manifest) = split_manifest_from_media(&client, &media, msg.text()).await else {
         return Ok(SplitHealthReport::not_split());
     };
 
@@ -1857,7 +1867,7 @@ pub async fn cmd_delete_file(
 
     let mut ids = vec![message_id];
     if let Some(media) = msg.media() {
-        if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+        if let Some(manifest) = split_manifest_from_media(&client, &media, msg.text()).await {
             validate_split_parts_present(&client, &peer, &manifest, "Split delete").await?;
             ids.extend(manifest.parts.iter().map(|p| p.message_id));
         }
@@ -1920,7 +1930,7 @@ pub async fn cmd_download_file(
     let media = msg.media()
         .ok_or_else(|| "No media in message".to_string())?;
 
-    if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+    if let Some(manifest) = split_manifest_from_media(&client, &media, msg.text()).await {
         return download_split_file(
             &client,
             &peer,
@@ -2115,7 +2125,7 @@ pub async fn cmd_move_files(
     for (message_id, msg) in message_ids.iter().zip(source_messages.into_iter()) {
         let msg = msg.ok_or_else(|| format!("Message {} not found in source folder. Please refresh and try again.", message_id))?;
         if let Some(media) = msg.media() {
-            if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+            if let Some(manifest) = split_manifest_from_media(&client, &media, msg.text()).await {
                 validate_split_parts_present(&client, &source_peer, &manifest, "Split move preflight").await?;
                 split_moves.push((*message_id, manifest));
                 continue;
@@ -2183,11 +2193,11 @@ pub async fn cmd_get_files(
             if caption.starts_with(SPLIT_PART_CAPTION_PREFIX) {
                 continue;
             }
-            if let Some(manifest) = split_manifest_from_media(&client, &doc).await {
+            if let Some(manifest) = split_manifest_from_media(&client, &doc, caption).await {
                 files.push(FileMetadata {
                     id: msg.id() as i64,
                     folder_id,
-                    name: if caption.is_empty() { manifest.filename.clone() } else { caption.to_string() },
+                    name: manifest.filename.clone(),
                     size: manifest.size,
                     mime_type: Some(manifest.mime_type),
                     file_ext: manifest.file_ext,

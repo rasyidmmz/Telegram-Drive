@@ -30,6 +30,7 @@ pub struct FileMetadata {
 
 pub const SPLIT_MANIFEST_VERSION: u8 = 1;
 pub const SPLIT_MANIFEST_SUFFIX: &str = ".tdmanifest.json";
+pub const SPLIT_MANIFEST_UPLOAD_NAME: &str = "teledrive.tdmanifest.json";
 pub const SPLIT_PART_CAPTION_PREFIX: &str = "[teledrive-part]";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

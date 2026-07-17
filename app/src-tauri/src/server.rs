@@ -1,13 +1,13 @@
 use actix_web::{get, web, App, HttpServer, HttpResponse, Responder};
 use actix_cors::Cors;
 use crate::commands::TelegramState;
+use crate::commands::fs::split_manifest_from_media;
 use crate::commands::streaming::stream_token_header_name;
 use crate::commands::utils::resolve_peer;
 use grammers_client::types::Media;
 use grammers_client::types::Peer;
 use crate::transcode::TranscodeManager;
-use crate::models::{SplitManifest, SPLIT_MANIFEST_SUFFIX};
-use crate::split_manifest::validate_split_manifest;
+use crate::models::SplitManifest;
 use crate::transfer_log::record_transfer_log;
 
 use std::collections::HashMap;
@@ -232,32 +232,6 @@ pub fn build_media_response(
     }
 
     resp.streaming(stream)
-}
-
-async fn split_manifest_from_media(
-    client: &grammers_client::Client,
-    media: &Media,
-) -> Option<SplitManifest> {
-    match media {
-        Media::Document(d) if d.name().ends_with(SPLIT_MANIFEST_SUFFIX) => {
-            let mut bytes = Vec::new();
-            let mut iter = client.iter_download(media);
-            while let Some(chunk) = iter.next().await.transpose() {
-                let chunk = chunk.ok()?;
-                bytes.extend_from_slice(&chunk);
-                if bytes.len() > 1024 * 1024 {
-                    return None;
-                }
-            }
-            let manifest: SplitManifest = serde_json::from_slice(&bytes).ok()?;
-            if validate_split_manifest(&manifest).is_ok() {
-                Some(manifest)
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
 }
 
 fn build_split_media_response(
@@ -533,7 +507,7 @@ async fn stream_media(
                         if let Some(Some(msg)) = messages.first() {
                             if let Some(media) = msg.media() {
                                 log::debug!("Stream request: Message and media found for msg {}", message_id);
-                                if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+                                if let Some(manifest) = split_manifest_from_media(&client, &media, msg.text()).await {
                                     return build_split_media_response(&client, peer.clone(), manifest, folder_id_str.clone(), &req);
                                 }
                                 let mime = mime_type_from_media(&media);

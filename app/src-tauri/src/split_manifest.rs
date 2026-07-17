@@ -1,5 +1,27 @@
-use crate::models::{SplitManifest, SPLIT_MANIFEST_VERSION};
+use crate::models::{SplitManifest, SPLIT_MANIFEST_SUFFIX, SPLIT_MANIFEST_VERSION};
 use std::collections::HashSet;
+
+pub(crate) const MAX_SPLIT_MANIFEST_BYTES: u64 = 1024 * 1024;
+
+pub(crate) fn is_split_manifest_candidate(
+    document_name: &str,
+    mime_type: Option<&str>,
+    document_size: u64,
+    caption: &str,
+) -> bool {
+    if document_name
+        .to_ascii_lowercase()
+        .ends_with(SPLIT_MANIFEST_SUFFIX)
+    {
+        return true;
+    }
+
+    let caption = caption.trim().to_ascii_lowercase();
+    let legacy_video_caption = caption.ends_with(".mkv") || caption.ends_with(".mp4");
+    document_size <= MAX_SPLIT_MANIFEST_BYTES
+        && mime_type.is_some_and(|value| value.eq_ignore_ascii_case("application/json"))
+        && legacy_video_caption
+}
 
 pub(crate) fn validate_split_manifest(manifest: &SplitManifest) -> Result<(), String> {
     if manifest.teledrive_split != SPLIT_MANIFEST_VERSION {
@@ -82,6 +104,36 @@ pub(crate) fn expected_part_count(size: u64, part_size: u64) -> Result<usize, St
 #[cfg(test)]
 mod tests {
     use crate::models::{SplitManifest, SplitPart, SPLIT_MANIFEST_VERSION};
+
+    #[test]
+    fn recognizes_legacy_video_manifest_when_filename_suffix_was_lost() {
+        assert!(super::is_split_manifest_candidate(
+            "Obsession.2025.1080p.BluRay.x265.DD+5.1-Pahe.in.mkv.tdmanife",
+            Some("application/json"),
+            392,
+            "Obsession.2025.1080p.BluRay.x265.DD+5.1-Pahe.in.mkv",
+        ));
+    }
+
+    #[test]
+    fn does_not_treat_regular_json_as_split_manifest() {
+        assert!(!super::is_split_manifest_candidate(
+            "notes.json",
+            Some("application/json"),
+            392,
+            "notes.json",
+        ));
+    }
+
+    #[test]
+    fn recognizes_canonical_split_manifest_filename() {
+        assert!(super::is_split_manifest_candidate(
+            "teledrive.tdmanifest.json",
+            Some("application/octet-stream"),
+            392,
+            "movie.mkv",
+        ));
+    }
 
     #[test]
     fn accepts_valid_manifest() {

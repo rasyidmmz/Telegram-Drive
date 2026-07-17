@@ -668,7 +668,7 @@ async fn api_bulk_files(
                 };
                 delete_ids.push(*message_id);
                 if let Some(media) = msg.media() {
-                    if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+                    if let Some(manifest) = split_manifest_from_media(&client, &media, msg.text()).await {
                         if let Err(e) = validate_split_parts_present(&client, &peer, &manifest, "API bulk split delete").await {
                             return json_error("SPLIT_INVALID", &e, 409);
                         }
@@ -712,7 +712,7 @@ async fn api_bulk_files(
                         None => return json_error("MESSAGE_NOT_FOUND", &format!("Message {} not found", message_id), 404),
                     };
                     if let Some(media) = msg.media() {
-                        if split_manifest_from_media(&client, &media).await.is_some() {
+                        if split_manifest_from_media(&client, &media, msg.text()).await.is_some() {
                             return json_error("SPLIT_MOVE_UNSUPPORTED", "Split files cannot be moved through the REST API yet. Use the desktop file move.", 409);
                         }
                     }
@@ -993,7 +993,7 @@ async fn api_delete_file(
 
     let mut ids = vec![message_id];
     if let Some(media) = msg.media() {
-        if let Some(manifest) = split_manifest_from_media(&client, &media).await {
+        if let Some(manifest) = split_manifest_from_media(&client, &media, msg.text()).await {
             if let Err(e) = validate_split_parts_present(&client, &peer, &manifest, "API split delete").await {
                 return json_error("SPLIT_INVALID", &e, 409);
             }
@@ -1046,7 +1046,7 @@ async fn api_copy_file(
     if let Ok(messages) = client.get_messages_by_id(&source_peer, &[message_id]).await {
         if let Some(Some(msg)) = messages.first() {
             if let Some(media) = msg.media() {
-                if split_manifest_from_media(&client, &media).await.is_some() {
+                if split_manifest_from_media(&client, &media, msg.text()).await.is_some() {
                     return json_error("SPLIT_COPY_UNSUPPORTED", "Split files cannot be copied through the REST API yet.", 409);
                 }
             }
@@ -1149,7 +1149,7 @@ async fn api_update_file(
             if let Ok(messages) = client.get_messages_by_id(&source_peer, &[message_id]).await {
                 if let Some(Some(msg)) = messages.first() {
                     if let Some(media) = msg.media() {
-                        if split_manifest_from_media(&client, &media).await.is_some() {
+                        if split_manifest_from_media(&client, &media, msg.text()).await.is_some() {
                             return json_error("SPLIT_MOVE_UNSUPPORTED", "Split files cannot be moved through the REST API yet. Use the desktop file move.", 409);
                         }
                     }
