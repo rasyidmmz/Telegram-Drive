@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:updater-signing-key": "node --test scripts/verify-updater-signing-key.test.js",
+    "verify:updater-signing-key": "node scripts/verify-updater-signing-key.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

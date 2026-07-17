@@ -8,7 +8,7 @@
       "endpoints": [
         "https://github.com/rasyidmmz/Telegram-Drive/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUwN0I3MDBFMzQ5Nzk2M0MKUldROGxwYzBEbkI3VUwwOE13MURPOUtGWWVNTGNkaFZ3WEg0MHFoR0JMSlVjNXBwYksxWEhNMkoK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENCMTIwNTI5RUQwMTk4MTMKUldRVG1BSHRLUVVTeTBzQzJvT1V5czBWKzg0UnpESTZvd3U3dndyWWJWa3orOHFIcHhKOWN1SjYK",
       "windows": {
         "installMode": "passive"
       }
@@ -16,31 +16,6 @@
   },
   "productName": "Teledrive",
   "version": "1.9.25",
-  "identifier": "com.rasyidmmz.teledrive",
-  "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "windows": [
-      {
-        "title": "Teledrive",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 1000,
-        "minHeight": 700,
-        "dragDropEnabled": false
-      }
-    ],
-    "security": {
-      "csp": "default-src 'self'; connect-src 'self' https: http://localhost:* https://asset.localhost http://asset.localhost; media-src 'self' blob: http://localhost:*; img-src 'self' data: blob: asset: https: https://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval' blob: https:; frame-src 'self' blob: https:; worker-src 'self' blob:;",
-      "capabilities": [
-        "default"
-      ]
-    }
-  },
   "identifier": "com.rasyidmmz.teledrive",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -78,6 +53,11 @@
     "resources": [
       "resources/whisper/**/*"
     ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
