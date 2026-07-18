@@ -124,15 +124,7 @@ async fn extract_audio_mpv(
     output_wav: &Path,
     cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<(), String> {
-    let mut args = vec![
-        stream_url.to_string(),
-        "--no-video".to_string(),
-        format!("--ao=pcm:file={}", output_wav.to_string_lossy()),
-        "--af=lavfi=[aresample=16000,pan=mono|c0=c0]".to_string(),
-    ];
-    if let Some(token) = token {
-        args.push(format!("--http-header-fields=X-Teledrive-Stream-Token: {}", token));
-    }
+    let args = build_audio_extraction_args(stream_url, token, output_wav);
 
     // Resolve mpv sidecar or system
     use tauri_plugin_shell::ShellExt;
@@ -141,15 +133,21 @@ async fn extract_audio_mpv(
         let (mut rx, child) = sidecar.args(sidecar_refs).spawn()
             .map_err(|e| format!("Failed to spawn mpv sidecar: {}", e))?;
 
+        let mut diagnostics = Vec::new();
         tokio::select! {
             res = async {
                 while let Some(event) = rx.recv().await {
-                    if let CommandEvent::Terminated(payload) = event {
-                        if payload.code == Some(0) {
-                            return Ok(());
-                        } else {
-                            return Err(format!("mpv exited with code {:?}", payload.code));
+                    match event {
+                        CommandEvent::Stderr(output) => append_mpv_diagnostic(&mut diagnostics, &output),
+                        CommandEvent::Terminated(payload) => {
+                            if payload.code == Some(0) {
+                                return Ok(());
+                            }
+                            return Err(mpv_exit_error(payload.code, &diagnostics));
                         }
+                        CommandEvent::Error(error) => append_mpv_diagnostic(&mut diagnostics, error.as_bytes()),
+                        CommandEvent::Stdout(_) => {}
+                        _ => {}
                     }
                 }
                 Err("mpv connection closed prematurely".to_string())
@@ -181,6 +179,45 @@ async fn extract_audio_mpv(
                 Err("Cancelled".to_string())
             }
         }
+    }
+}
+
+fn build_audio_extraction_args(
+    stream_url: &str,
+    token: Option<&str>,
+    output_wav: &Path,
+) -> Vec<String> {
+    let mut args = vec![
+        "--no-video".to_string(),
+        format!("--ao=pcm:file={}", output_wav.to_string_lossy()),
+        "--af=lavfi=[aresample=16000,pan=mono|c0=c0]".to_string(),
+    ];
+    if let Some(token) = token {
+        args.push(format!("--http-header-fields=X-Teledrive-Stream-Token: {}", token));
+    }
+    // mpv applies per-file options to following inputs. Keep the authenticated
+    // stream URL last so the header and extraction options apply to it.
+    args.push(stream_url.to_string());
+    args
+}
+
+fn append_mpv_diagnostic(diagnostics: &mut Vec<String>, output: &[u8]) {
+    for line in String::from_utf8_lossy(output).lines() {
+        let line = line.trim();
+        if !line.is_empty() {
+            diagnostics.push(line.chars().take(300).collect());
+        }
+    }
+    if diagnostics.len() > 8 {
+        diagnostics.drain(..diagnostics.len() - 8);
+    }
+}
+
+fn mpv_exit_error(code: Option<i32>, diagnostics: &[String]) -> String {
+    if diagnostics.is_empty() {
+        format!("mpv exited with code {:?}", code)
+    } else {
+        format!("mpv exited with code {:?}: {}", code, diagnostics.join(" | "))
     }
 }
 
@@ -485,18 +522,23 @@ mod tests {
         let url = "http://localhost:14201/stream/home/10";
         let token = Some("mytoken");
         let output_wav = std::path::Path::new("temp.wav");
-        let mut args = vec![
-            url.to_string(),
-            "--no-video".to_string(),
-            format!("--ao=pcm:file={}", output_wav.to_string_lossy()),
-            "--af=lavfi=[aresample=16000,pan=mono|c0=c0]".to_string(),
-        ];
-        if let Some(token) = token {
-            args.push(format!("--http-header-fields=X-Teledrive-Stream-Token: {}", token));
-        }
-        assert_eq!(args[1], "--no-video");
-        assert_eq!(args[2], "--ao=pcm:file=temp.wav");
-        assert_eq!(args[4], "--http-header-fields=X-Teledrive-Stream-Token: mytoken");
+        let args = build_audio_extraction_args(url, token, output_wav);
+
+        assert_eq!(args[0], "--no-video");
+        assert_eq!(args[1], "--ao=pcm:file=temp.wav");
+        assert_eq!(args[3], "--http-header-fields=X-Teledrive-Stream-Token: mytoken");
+        assert_eq!(args.last().map(String::as_str), Some(url));
+    }
+
+    #[test]
+    fn mpv_exit_error_includes_bounded_diagnostics() {
+        let mut diagnostics = Vec::new();
+        append_mpv_diagnostic(&mut diagnostics, b"[ffmpeg] HTTP error 403 Forbidden\n");
+
+        assert_eq!(
+            mpv_exit_error(Some(1), &diagnostics),
+            "mpv exited with code Some(1): [ffmpeg] HTTP error 403 Forbidden"
+        );
     }
 
     #[test]

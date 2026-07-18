@@ -1,6 +1,6 @@
 [package]
 name = "teledrive"
-version = "1.9.27"
+version = "1.9.28"
 description = "Windows 11 x64 Telegram-backed media and file drive."
 authors = ["rasyidmmz"]
 edition = "2021"

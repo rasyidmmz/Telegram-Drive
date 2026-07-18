@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.28] - 2026-07-18
+
+### English Captions
+
+- Fixed MPV subtitle audio extraction so its stream authentication header and extraction options apply before opening the protected local stream URL.
+- Include a short MPV diagnostic in subtitle errors to distinguish stream authorization, audio decoding, and temporary-file failures.
+
 ## [1.9.27] - 2026-07-17
 
 ### Updater Recovery
