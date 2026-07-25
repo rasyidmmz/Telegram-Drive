@@ -50,6 +50,8 @@ pub mod upload_checkpoint;
 pub mod streaming_buffer;
 pub mod parallel_download;
 pub mod session_health;
+pub mod parallel_upload;
+pub mod batch_cc_queue;
 
 use tauri::Manager;
 
@@ -290,6 +292,7 @@ pub fn run() {
             app.manage(net_config.clone());
             app.manage(commands::english_cc::EnglishCcManager::new());
             app.manage(Arc::new(session_health::SessionHealthManager::new()));
+            app.manage(Arc::new(batch_cc_queue::BatchCcQueueManager::new()));
             
             // Initialize SQLite Database
             let db_pool = db::init_db(app.handle()).map_err(|e| {
