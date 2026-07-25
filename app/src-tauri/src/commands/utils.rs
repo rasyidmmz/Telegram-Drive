@@ -77,17 +77,36 @@ pub fn cmd_get_bandwidth(bw_state: State<'_, Arc<BandwidthManager>>) -> crate::b
 pub fn map_error(e: impl std::fmt::Display) -> String {
     let err_str = e.to_string();
     if err_str.contains("FLOOD_WAIT") || err_str.contains("FLOOD_PREMIUM_WAIT") {
-        // Expected format: ... (value: 1234)
-        if let Some(start) = err_str.find("(value: ") {
-             let rest = &err_str[start + 8..];
-             if let Some(end) = rest.find(')') {
-                 if let Ok(seconds) = rest[..end].parse::<i64>() {
-                     return format!("FLOOD_WAIT_{}", seconds);
-                 }
-             }
+        if let Some(pos) = err_str.find("WAIT_") {
+            let rest = &err_str[pos + 5..];
+            let num_str: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(seconds) = num_str.parse::<u64>() {
+                return format!("FLOOD_WAIT_{}", seconds);
+            }
         }
-        // Fallback if parsing fails but we know it's a flood wait
-        return "FLOOD_WAIT_60".to_string();
+        if let Some(start) = err_str.find("(value: ") {
+            let rest = &err_str[start + 8..];
+            if let Some(end) = rest.find(')') {
+                if let Ok(seconds) = rest[..end].parse::<u64>() {
+                    return format!("FLOOD_WAIT_{}", seconds);
+                }
+            }
+        }
+        return err_str;
     }
     err_str
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_error_parses_various_flood_wait_formats_and_preserves_other_errors() {
+        assert_eq!(map_error("rpc error 420: FLOOD_WAIT_15"), "FLOOD_WAIT_15");
+        assert_eq!(map_error("FLOOD_WAIT_30"), "FLOOD_WAIT_30");
+        assert_eq!(map_error("FLOOD_WAIT (value: 45)"), "FLOOD_WAIT_45");
+        assert_eq!(map_error("FLOOD_PREMIUM_WAIT_10"), "FLOOD_WAIT_10");
+        assert_eq!(map_error("rpc error 400: FILE_PARTS_INVALID"), "rpc error 400: FILE_PARTS_INVALID");
+    }
 }

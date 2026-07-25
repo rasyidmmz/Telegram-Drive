@@ -146,10 +146,13 @@ export function LogsModal({ isOpen, onClose }: LogsModalProps) {
 }
 
 function formatEntry(log: ErrorLogEntry) {
-    const source = log.category ? `${log.source} / ${log.category}` : log.source;
+    const source = log.category ? `${log.source} [${log.category}]` : log.source;
     return [
-        `[${new Date(log.time).toLocaleString()}] ${source}`,
-        log.message,
-        log.details,
+        `=== TELEDRIVE DIAGNOSTIC LOG ===`,
+        `Time: ${new Date(log.time).toISOString()}`,
+        `Source: ${source}`,
+        `Message: ${log.message}`,
+        log.details ? `Details:\n${log.details}` : '',
+        `================================`
     ].filter(Boolean).join('\n');
 }

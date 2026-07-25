@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.30] - 2026-07-25
+
+### Diagnostics & Transfers
+
+- Fixed `map_error` parsing in Tauri backend to correctly extract `FLOOD_WAIT` durations and stop masking unparsed Telegram RPC errors as generic `FLOOD_WAIT_60`.
+- Enhanced transfer logs with stage details (`upload_stream` vs `send_message`), file path, size, and raw Telegram RPC error messages.
+- Formatted log export in Logs Modal with structured headers for 1-click copying and direct AI diagnosis.
+
 ## [1.9.29] - 2026-07-25
 
 ### Direct Transfers
