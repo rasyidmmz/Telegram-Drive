@@ -76,6 +76,16 @@ pub fn init_db(app: &AppHandle) -> Result<DbConnection, String> {
                     display_order INTEGER NOT NULL DEFAULT 0,
                     group_id INTEGER,
                     FOREIGN KEY(group_id) REFERENCES groups(id) ON DELETE SET NULL
+                );
+                CREATE TABLE IF NOT EXISTS upload_checkpoints (
+                    id TEXT PRIMARY KEY,
+                    file_path TEXT NOT NULL,
+                    file_size INTEGER NOT NULL,
+                    modified_time INTEGER NOT NULL,
+                    telegram_file_id INTEGER NOT NULL,
+                    last_part_index INTEGER NOT NULL,
+                    total_parts INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
                 );"
             ) {
                 Ok(_) => {

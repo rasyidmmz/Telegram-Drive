@@ -46,6 +46,10 @@ pub mod split_manifest;
 pub mod transfer_log;
 pub mod failure_classifier;
 pub mod split_upload_resume;
+pub mod upload_checkpoint;
+pub mod streaming_buffer;
+pub mod parallel_download;
+pub mod session_health;
 
 use tauri::Manager;
 
@@ -285,6 +289,7 @@ pub fn run() {
             let net_config = Arc::new(vpn_optimizer::NetworkConfig::new());
             app.manage(net_config.clone());
             app.manage(commands::english_cc::EnglishCcManager::new());
+            app.manage(Arc::new(session_health::SessionHealthManager::new()));
             
             // Initialize SQLite Database
             let db_pool = db::init_db(app.handle()).map_err(|e| {

@@ -187,9 +187,11 @@ fn build_audio_extraction_args(
     token: Option<&str>,
     output_wav: &Path,
 ) -> Vec<String> {
+    let wav_path_str = output_wav.to_string_lossy().replace('\\', "/");
     let mut args = vec![
         "--no-video".to_string(),
-        format!("--ao=pcm:file={}", output_wav.to_string_lossy()),
+        "--benchmark".to_string(),
+        format!("--ao=pcm:file={}", wav_path_str),
         "--af=lavfi=[aresample=16000,pan=mono|c0=c0]".to_string(),
     ];
     if let Some(token) = token {
@@ -238,6 +240,52 @@ pub fn parse_whisper_timestamp(line: &str) -> Option<f32> {
     None
 }
 
+fn resolve_whisper_binary(app_handle: &tauri::AppHandle, binary_name: &str) -> Option<PathBuf> {
+    if let Ok(res_dir) = app_handle.path().resource_dir() {
+        let candidates = [
+            res_dir.join("resources").join("whisper").join(binary_name),
+            res_dir.join("whisper").join(binary_name),
+            res_dir.join(binary_name),
+        ];
+        for c in candidates {
+            if c.exists() { return Some(c); }
+        }
+    }
+    if let Ok(app_dir) = app_handle.path().app_data_dir() {
+        let candidates = [
+            app_dir.join("resources").join("whisper").join(binary_name),
+            app_dir.join("whisper").join(binary_name),
+            app_dir.join(binary_name),
+        ];
+        for c in candidates {
+            if c.exists() { return Some(c); }
+        }
+    }
+    if let Ok(exec_path) = std::env::current_exe() {
+        if let Some(exec_dir) = exec_path.parent() {
+            let candidates = [
+                exec_dir.join("resources").join("whisper").join(binary_name),
+                exec_dir.join("whisper").join(binary_name),
+                exec_dir.join(binary_name),
+            ];
+            for c in candidates {
+                if c.exists() { return Some(c); }
+            }
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidates = [
+            cwd.join("resources").join("whisper").join(binary_name),
+            cwd.join("whisper").join(binary_name),
+            cwd.join(binary_name),
+        ];
+        for c in candidates {
+            if c.exists() { return Some(c); }
+        }
+    }
+    None
+}
+
 async fn run_whisper_transcription(
     app_handle: &tauri::AppHandle,
     wav_path: &Path,
@@ -246,30 +294,16 @@ async fn run_whisper_transcription(
     manager_state: Arc<Mutex<CcManagerState>>,
     cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<(), String> {
-    let resource_dir = app_handle.path().resource_dir()
-        .map_err(|e| format!("Failed to find resource dir: {}", e))?;
-    
-    let whisper_cli = resource_dir.join("resources").join("whisper").join("whisper-cli.exe");
-    let model_path = resource_dir.join("resources").join("whisper").join("ggml-base.en.bin");
+    let whisper_cli = resolve_whisper_binary(app_handle, "whisper-cli.exe")
+        .ok_or_else(|| "whisper-cli.exe tidak ditemukan di direktori aplikasi.".to_string())?;
 
-    // Fallback paths for development environment
-    let whisper_cli = if whisper_cli.exists() {
-        whisper_cli
-    } else {
-        resource_dir.join("whisper").join("whisper-cli.exe")
-    };
-    let model_path = if model_path.exists() {
-        model_path
-    } else {
-        resource_dir.join("whisper").join("ggml-base.en.bin")
-    };
+    let model_path = resolve_whisper_binary(app_handle, "ggml-base.en.bin")
+        .ok_or_else(|| "ggml-base.en.bin tidak ditemukan di direktori aplikasi.".to_string())?;
 
-    if !whisper_cli.exists() {
-        return Err(format!("whisper-cli.exe tidak ditemukan di {:?}", whisper_cli));
-    }
-    if !model_path.exists() {
-        return Err(format!("ggml-base.en.bin tidak ditemukan di {:?}", model_path));
-    }
+    let threads = (std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) / 2)
+        .max(1)
+        .min(2)
+        .to_string();
 
     let mut cmd = tokio::process::Command::new(&whisper_cli);
     cmd.args(&[
@@ -277,10 +311,12 @@ async fn run_whisper_transcription(
         "-f", &wav_path.to_string_lossy(),
         "-osrt",
         "-of", &srt_base_path.to_string_lossy(),
-        "-t", "4",
+        "-t", &threads,
         "--split-on-word",
         "-ml", "42"
     ]);
+    #[cfg(target_os = "windows")]
+    cmd.creation_flags(0x00004000); // BELOW_NORMAL_PRIORITY_CLASS
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
     cmd.kill_on_drop(true);
@@ -377,8 +413,8 @@ pub async fn cmd_generate_english_cc(
                 None => "home".to_string(),
             };
             let stream_url = format!(
-                "http://localhost:{}/stream/{}/{}",
-                stream_config.port, folder_id_str, message_id
+                "http://localhost:{}/stream/{}/{}?token={}",
+                stream_config.port, folder_id_str, message_id, stream_config.token
             );
             let token = Some(stream_config.token.as_str());
 
@@ -411,11 +447,41 @@ pub async fn cmd_generate_english_cc(
                 &mut cancel_rx,
             ).await?;
 
-            // Save atomic file
+            // Save atomic file locally and auto-upload to Telegram folder
             if srt_temp_file.exists() {
                 let _ = std::fs::create_dir_all(srt_path.parent().unwrap());
                 std::fs::copy(&srt_temp_file, &srt_path)
                     .map_err(|e| format!("Gagal menyimpan subtitle final: {}", e))?;
+
+                // Auto-upload .en.srt to Telegram folder
+                if let Ok(peer) = crate::commands::utils::resolve_peer(&client, folder_id, &state_tg.peer_cache).await {
+                    if let Ok(messages) = client.get_messages_by_id(&peer, &[message_id]).await {
+                        if let Some(msg) = messages.into_iter().flatten().next() {
+                            let video_name = match msg.media() {
+                                Some(Media::Document(d)) => d.name().to_string(),
+                                _ => format!("{}_{}.mkv", folder_id.unwrap_or(0), message_id),
+                            };
+                            let stem = std::path::Path::new(&video_name)
+                                .file_stem()
+                                .unwrap_or_default()
+                                .to_string_lossy();
+                            let srt_name = format!("{}.en.srt", stem);
+
+                            if let Ok(srt_bytes) = std::fs::read(&srt_temp_file) {
+                                let srt_len = srt_bytes.len();
+                                let mut cursor = std::io::Cursor::new(srt_bytes);
+                                if let Ok(uploaded) = client.upload_stream(&mut cursor, srt_len, srt_name.clone()).await {
+                                    let _ = client.send_message(&peer, grammers_client::InputMessage::new().file(uploaded)).await;
+                                    crate::transfer_log::record_transfer_log(
+                                        "Subtitle Auto-Upload",
+                                        &format!("Subtitle {} berhasil diunggah ke folder Telegram.", srt_name),
+                                        None,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 return Err("File subtitle temporer tidak ditemukan setelah transkripsi.".to_string());
             }

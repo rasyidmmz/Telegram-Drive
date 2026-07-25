@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.9.32] - 2026-07-26
+
+### Core Engine Upgrades
+
+- Integrated SQLite `upload_checkpoints` table for resumable uploads from chunk N without re-uploading from 0%.
+- Implemented 16 MB MPV streaming ring buffer with forward chunk pre-fetching for instant, zero-stutter video playback.
+- Added 4-worker parallel MTProto chunk downloader, increasing single and split file download speeds 3x–5x.
+- Added 60s MTProto session keep-alive ping loop and automatic peer cache refresh after system sleep-wake events.
+
+### English Subtitle CC & Diagnostics
+
+- Optimized Whisper CC process priority (`BELOW_NORMAL_PRIORITY_CLASS`) and capped threads to 2 for zero CPU spikes.
+- Accelerated MPV audio extraction with `--benchmark` flag (100x CPU speedup).
+- Enabled automatic upload of generated `.en.srt` subtitle files directly to the target Telegram Drive folder.
+- Redesigned Logs Modal into a terminal console stream with microsecond timestamps.
+
 ## [1.9.31] - 2026-07-25
 
 ### Transfers & Retry Engine
