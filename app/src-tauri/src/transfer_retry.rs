@@ -5,7 +5,7 @@ pub(crate) fn upload_stream_retry_attempts(configured_attempts: u32) -> u32 {
 }
 
 pub(crate) fn flood_wait_retry_attempts(configured_attempts: u32) -> u32 {
-    configured_attempts.max(1)
+    configured_attempts.max(10)
 }
 
 pub(crate) fn should_retry_upload_error(
@@ -17,7 +17,8 @@ pub(crate) fn should_retry_upload_error(
         return true;
     }
 
-    is_transient_upload_error(err) && attempt < upload_stream_retry_attempts(configured_attempts)
+    (err.starts_with("FLOOD_WAIT_") || is_transient_upload_error(err))
+        && attempt < upload_stream_retry_attempts(configured_attempts)
 }
 
 pub(crate) fn upload_error_kind(err: &str) -> &'static str {
@@ -91,8 +92,8 @@ mod tests {
     }
 
     #[test]
-    fn flood_wait_gets_one_retry_when_optional_retries_are_disabled() {
-        assert_eq!(flood_wait_retry_attempts(0), 1);
-        assert_eq!(flood_wait_retry_attempts(3), 3);
+    fn flood_wait_gets_ten_retries_when_optional_retries_are_disabled() {
+        assert_eq!(flood_wait_retry_attempts(0), 10);
+        assert_eq!(flood_wait_retry_attempts(3), 10);
     }
 }

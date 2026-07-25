@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.31] - 2026-07-25
+
+### Transfers & Retry Engine
+
+- Fixed FLOOD_WAIT retry loop in `fs.rs` and `api_routes.rs` so rate-limit pauses sleep up to 10 attempts without prematurely failing transfers or depleting retry budget.
+- Separated `flood_wait_count` from general attempt counter so repeated rate-limit pauses on large files do not cause premature upload aborts.
+
 ## [1.9.30] - 2026-07-25
 
 ### Diagnostics & Transfers

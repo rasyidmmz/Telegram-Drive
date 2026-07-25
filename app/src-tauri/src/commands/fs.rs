@@ -587,6 +587,7 @@ async fn upload_path_and_send(
     let mut attempts_made = 0;
     let mut last_err = String::new();
     let mut uploaded_file = None;
+    let mut flood_wait_count = 0;
 
     while attempt <= max_attempts {
         if state.cancelled_transfers.read().await.contains(tid) {
@@ -677,11 +678,13 @@ async fn upload_path_and_send(
                 );
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        if attempt >= flood_wait_attempts {
+                        flood_wait_count += 1;
+                        if flood_wait_count > flood_wait_attempts {
                             break;
                         }
-                        tokio::time::sleep(std::time::Duration::from_secs(secs.min(300))).await;
-                        attempt += 1;
+                        let wait = secs.min(300);
+                        log::info!("Respecting FLOOD_WAIT for split upload ({}/{}): sleeping {}s", flood_wait_count, flood_wait_attempts, wait);
+                        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                         continue;
                     }
                 }
@@ -1450,6 +1453,7 @@ async fn cmd_upload_file_inner(
     let mut last_err = String::new();
     let mut attempts_made = 0;
     let mut uploaded_file = None;
+    let mut flood_wait_count = 0;
 
     while attempt <= max_attempts {
         if state.cancelled_transfers.read().await.contains(&tid) {
@@ -1557,13 +1561,13 @@ async fn cmd_upload_file_inner(
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        if attempt >= flood_wait_attempts {
+                        flood_wait_count += 1;
+                        if flood_wait_count > flood_wait_attempts {
                             break;
                         }
                         let wait = secs.min(300);
-                        log::info!("Respecting FLOOD_WAIT for upload: sleeping {}s", wait);
+                        log::info!("Respecting FLOOD_WAIT for upload ({}/{}): sleeping {}s", flood_wait_count, flood_wait_attempts, wait);
                         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
-                        attempt += 1;
                         continue;
                     }
                 }

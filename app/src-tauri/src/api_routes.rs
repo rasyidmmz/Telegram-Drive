@@ -1294,6 +1294,7 @@ async fn api_upload_file(
     let mut last_err = String::new();
     let mut attempts_made = 0;
     let mut uploaded_file = None;
+    let mut flood_wait_count = 0;
 
     while attempt <= max_attempts {
         let (mut open_file, _, _) = match ProgressReader::new(temp_path.to_str().unwrap(), limit).await {
@@ -1330,13 +1331,13 @@ async fn api_upload_file(
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        if attempt >= flood_wait_attempts {
+                        flood_wait_count += 1;
+                        if flood_wait_count > flood_wait_attempts {
                             break;
                         }
                         let wait = secs.min(300);
-                        log::info!("Respecting FLOOD_WAIT for API upload: sleeping {}s", wait);
+                        log::info!("Respecting FLOOD_WAIT for API upload ({}/{}): sleeping {}s", flood_wait_count, flood_wait_attempts, wait);
                         tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
-                        attempt += 1;
                         continue;
                     }
                 }
