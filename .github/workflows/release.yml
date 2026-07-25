@@ -138,15 +138,18 @@ jobs:
           KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           const fs = require('fs');
-          const key = process.env.KEY.trim();
-          // Tauri expects TAURI_SIGNING_PRIVATE_KEY to be base64-encoded.
-          // If the secret is raw key text, base64-encode it; otherwise pass through.
-          const b64 = key.startsWith('untrusted comment:')
-            ? Buffer.from(key).toString('base64')
-            : key;
-          fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${b64}\n`);
+          const key = (process.env.KEY || '').trim();
+          if (!key) {
+            console.log('TAURI_SIGNING_PRIVATE_KEY secret is empty or not configured.');
+          } else {
+            const b64 = key.startsWith('untrusted comment:')
+              ? Buffer.from(key).toString('base64')
+              : key;
+            fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${b64}\n`);
+          }
 
       - name: Verify updater signing key
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
         working-directory: app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
