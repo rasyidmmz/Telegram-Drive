@@ -4,6 +4,10 @@ pub(crate) fn upload_stream_retry_attempts(configured_attempts: u32) -> u32 {
     configured_attempts.max(TRANSIENT_UPLOAD_RETRY_ATTEMPTS)
 }
 
+pub(crate) fn flood_wait_retry_attempts(configured_attempts: u32) -> u32 {
+    configured_attempts.max(1)
+}
+
 pub(crate) fn should_retry_upload_error(
     err: &str,
     attempt: u32,
@@ -84,5 +88,11 @@ mod tests {
 
         assert!(should_retry_upload_error(err, 0, 1));
         assert!(!should_retry_upload_error(err, 1, 1));
+    }
+
+    #[test]
+    fn flood_wait_gets_one_retry_when_optional_retries_are_disabled() {
+        assert_eq!(flood_wait_retry_attempts(0), 1);
+        assert_eq!(flood_wait_retry_attempts(3), 3);
     }
 }

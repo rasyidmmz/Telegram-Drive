@@ -1,9 +1,6 @@
 import { HardDrive, LayoutGrid, Sun, Moon, Settings, Share2, X, Globe, ScrollText } from 'lucide-react';
 import { useTheme } from '../../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
-import { useSettings } from '../../../context/SettingsContext';
-import { invoke } from '@tauri-apps/api/core';
-import { useState, useEffect } from 'react';
 import { useErrorLogs } from '../../../errorLogs';
 
 interface TopBarProps {
@@ -31,29 +28,7 @@ export function TopBar({
 }: TopBarProps) {
     const { theme, toggleTheme } = useTheme();
     const { t } = useTranslation();
-    const { settings } = useSettings();
     const errorLogs = useErrorLogs();
-    const [proxyStatus, setProxyStatus] = useState<{ reachable: boolean; latency_ms: number } | null>(null);
-
-    // Poll proxy status in the top bar
-    useEffect(() => {
-        if (!settings.proxyEnabled || !settings.proxyLiveStateEnabled) {
-            setProxyStatus(null);
-            return;
-        }
-        const checkProxy = async () => {
-            try {
-                const status = await invoke<{ reachable: boolean; latency_ms: number }>('cmd_get_proxy_status');
-                setProxyStatus(status);
-            } catch {
-                setProxyStatus({ reachable: false, latency_ms: -1 });
-            }
-        };
-        checkProxy();
-        const interval = setInterval(checkProxy, 5000);
-        return () => clearInterval(interval);
-    }, [settings.proxyEnabled, settings.proxyLiveStateEnabled]);
-
     return (
         <header className="h-14 border-b border-telegram-border flex items-center px-4 justify-between bg-telegram-surface/80 backdrop-blur-md sticky top-0 z-10" onClick={e => e.stopPropagation()}>
             <div className="flex-1 flex items-center justify-start gap-4">
@@ -86,38 +61,6 @@ export function TopBar({
                     </div>
                 )}
 
-                {settings.proxyEnabled && settings.proxyLiveStateEnabled && (
-                    <div 
-                        className="flex items-center gap-1.5 mr-2 px-2.5 py-1 rounded bg-white/5 border border-telegram-border text-[11px] text-telegram-subtext font-mono transition-all group relative cursor-help"
-                        title={!proxyStatus 
-                            ? 'Proxy status: checking…' 
-                            : proxyStatus.reachable 
-                                ? `Proxy active: ${proxyStatus.latency_ms}ms latency` 
-                                : 'Proxy status: unreachable'}
-                    >
-                        <div className={`w-2 h-2 rounded-full ${
-                            !proxyStatus 
-                                ? 'bg-amber-400 animate-pulse' 
-                                : proxyStatus.reachable 
-                                    ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]' 
-                                    : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
-                        }`} />
-                        <span>
-                            {!proxyStatus 
-                                ? 'Checking…' 
-                                : proxyStatus.reachable 
-                                    ? `${proxyStatus.latency_ms}ms` 
-                                    : 'Offline'}
-                        </span>
-                        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] bg-telegram-surface border border-telegram-border px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
-                            {t('common.proxy')}: {!proxyStatus 
-                                ? 'Checking…' 
-                                : proxyStatus.reachable 
-                                    ? `${proxyStatus.latency_ms}ms` 
-                                    : 'Offline'}
-                        </span>
-                    </div>
-                )}
 
                 <button onClick={onDownloadFolder} className="p-2 hover:bg-telegram-hover rounded-md text-telegram-subtext hover:text-telegram-text transition group relative" title={t('files.download_folder')}>
                     <HardDrive className="w-5 h-5" />

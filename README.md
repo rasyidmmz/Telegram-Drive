@@ -31,7 +31,7 @@ managed from a desktop file explorer UI.
 
 Main differences:
 
-- Windows 11 x64 only. Android, iOS, macOS, and Linux release paths were removed
+- Windows 11 x64 only. Android, iOS, macOS, and Linux release paths were removed.
   from the active build.
 - App branding and installer identity were changed to `Teledrive`.
 - The release workflow builds only the Windows NSIS installer.
@@ -78,15 +78,14 @@ Current behavior:
 - Upload and download queues.
 - Retry/backoff controls for unstable connections.
 - Automatic `FLOOD_WAIT` handling.
-- Upload/download bandwidth throttles.
+- Direct upload and download transfers without an application-side bandwidth throttle.
 - Logs view for upload/download failure details.
 - MPV-based video/audio playback.
 - MP4/MKV metadata badges.
 - PDF preview.
 - Shareable links with optional protection.
 - Local REST API for automation and tool integration.
-- SOCKS5 proxy support.
-- VPN-oriented timeout, polling, keep-alive, and peer-cache settings.
+- Direct Telegram connections only; proxy and VPN/network-optimizer settings are not supported.
 - Windows autostart toggle.
 - Windows-only updater artifacts.
 

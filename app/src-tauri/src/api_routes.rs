@@ -14,7 +14,7 @@ use crate::commands::preview::THUMBNAIL_EXTS;
 use crate::models::FolderMetadata;
 use crate::bandwidth::BandwidthManager;
 use crate::vpn_optimizer::NetworkConfig;
-use crate::transfer_retry::{should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
+use crate::transfer_retry::{flood_wait_retry_attempts, should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
 use crate::transfer_log::record_transfer_log;
 use grammers_client::types::{Media, Peer};
 use grammers_client::InputMessage;
@@ -1288,6 +1288,7 @@ async fn api_upload_file(
     let configured_attempts = net_config.retry_attempts();
     let max_attempts = upload_stream_retry_attempts(configured_attempts);
     let respect_flood = net_config.should_respect_flood_wait();
+    let flood_wait_attempts = flood_wait_retry_attempts(configured_attempts);
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let mut last_err = String::new();
@@ -1329,7 +1330,7 @@ async fn api_upload_file(
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        if attempt >= configured_attempts {
+                        if attempt >= flood_wait_attempts {
                             break;
                         }
                         let wait = secs.min(300);
@@ -1364,10 +1365,15 @@ async fn api_upload_file(
 
     let message = InputMessage::new().text(filename.clone()).file(uploaded_file);
 
-    let max_retries = net_config.retry_attempts();
+    let configured_retries = net_config.retry_attempts();
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let respect_flood = net_config.should_respect_flood_wait();
+    let max_retries = if respect_flood {
+        flood_wait_retry_attempts(configured_retries)
+    } else {
+        configured_retries
+    };
     let mut last_err = String::new();
     let mut sent_msg = None;
 
@@ -1383,17 +1389,22 @@ async fn api_upload_file(
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        let wait = secs.min(300);
-                        log::info!("Respecting FLOOD_WAIT: sleeping {}s", wait);
-                        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                         last_err = err;
-                        continue;
+                        if attempt < max_retries {
+                            let wait = secs.min(300);
+                            log::info!("Respecting FLOOD_WAIT: sleeping {}s", wait);
+                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                            continue;
+                        }
+                        break;
                     }
                 }
 
-                if attempt < max_retries {
+                if attempt < configured_retries {
                     let wait = crate::vpn_optimizer::backoff_ms(attempt, base_ms, max_ms);
                     tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+                } else {
+                    break;
                 }
                 last_err = err;
             }

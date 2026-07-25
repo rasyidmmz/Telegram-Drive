@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, RotateCcw, Download, Upload, Trash2, HardDrive, Globe, Key, Copy, Check, RefreshCw, Shield, Zap, Activity, Gauge, Wifi, ChevronDown, Link, Sparkles, Info, Clipboard, Monitor, Loader2, Languages, Play, Palette, Plus, Tag } from 'lucide-react';
+import { X, RotateCcw, Download, Upload, Trash2, HardDrive, Globe, Key, Copy, Check, RefreshCw, Zap, Activity, Gauge, Wifi, ChevronDown, Link, Sparkles, Info, Clipboard, Monitor, Loader2, Languages, Palette, Plus, Tag } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-shell';
 import { toast } from 'sonner';
@@ -27,7 +27,7 @@ interface ApiSettings {
     running: boolean;
 }
 
-type SettingsTab = 'general' | 'themes' | 'proxy' | 'vpn' | 'sharing' | 'about';
+type SettingsTab = 'general' | 'themes' | 'vpn' | 'sharing' | 'about';
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const { settings, updateSetting, resetSettings } = useSettings();
@@ -40,10 +40,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [cacheLoading, setCacheLoading] = useState(false);
     const [clearingVariant, setClearingVariant] = useState<string | null>(null); // file_key:quality being cleared
     const [activeTab, setActiveTab] = useState<SettingsTab>('general');
-    const [latencyMs, setLatencyMs] = useState<number | null>(null);
-    const [vpnDetected, setVpnDetected] = useState<boolean | null>(null);
-    const [proxyStatus, setProxyStatus] = useState<{ reachable: boolean; latency_ms: number } | null>(null);
-    const [isTestingProxy, setIsTestingProxy] = useState(false);
+    const [latencyMs] = useState<number | null>(null);
+    const [vpnDetected] = useState<boolean | null>(null);
 
     const {
         checking: updateChecking,
@@ -57,9 +55,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         checkForUpdates,
         downloadAndInstall,
     } = useUpdateCheck({ autoCheck: false });
-
-    // Reconnect state
-    const [reconnecting, setReconnecting] = useState(false);
 
     // Diagnostics state
     const [diagLoading, setDiagLoading] = useState(false);
@@ -187,52 +182,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         return () => clearInterval(interval);
     }, [isOpen, apiSettings.enabled, fetchApiSettings]);
 
-    // Poll latency when VPN tab is active
-    useEffect(() => {
-        if (!isOpen || activeTab !== 'vpn') return;
-        const check = async () => {
-            try {
-                const ms = await invoke<number>('cmd_check_latency');
-                setLatencyMs(ms);
-            } catch { setLatencyMs(null); }
-        };
-        check();
-        const interval = setInterval(check, 5000);
-        return () => clearInterval(interval);
-    }, [isOpen, activeTab]);
-
-    // Poll proxy status when Proxy tab is active
-    useEffect(() => {
-        if (!isOpen || activeTab !== 'proxy') return;
-        const checkProxy = async () => {
-            if (!settings.proxyEnabled || !settings.proxyLiveStateEnabled) {
-                setProxyStatus(null);
-                return;
-            }
-            try {
-                const status = await invoke<{ reachable: boolean; latency_ms: number }>('cmd_get_proxy_status');
-                setProxyStatus(status);
-            } catch {
-                setProxyStatus({ reachable: false, latency_ms: -1 });
-            }
-        };
-        checkProxy();
-        const interval = setInterval(checkProxy, 5000);
-        return () => clearInterval(interval);
-    }, [isOpen, activeTab, settings.proxyEnabled, settings.proxyLiveStateEnabled]);
-
-    // Detect VPN interfaces when VPN tab opens
-    useEffect(() => {
-        if (!isOpen || activeTab !== 'vpn') return;
-        const detect = async () => {
-            try {
-                const found = await invoke<boolean>('cmd_detect_vpn');
-                setVpnDetected(found);
-            } catch { setVpnDetected(null); }
-        };
-        detect();
-    }, [isOpen, activeTab]);
-
     const handleApiToggle = async () => {
         setApiLoading(true);
         try {
@@ -341,7 +290,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                         {/* Tab Bar */}
                         <div className="px-5 pt-3 pb-0 flex gap-1 justify-start overflow-x-auto border-b border-telegram-border scrollbar-none">
-                            {([['general', Globe], ['themes', Palette], ['proxy', Shield], ['vpn', Zap], ['sharing', Link], ['about', Info]] as const).map(([key, Icon]) => (
+                            {([['general', Globe], ['themes', Palette], ['sharing', Link], ['about', Info]] as const).map(([key, Icon]) => (
                                 <button
                                     key={key}
                                     onClick={() => setActiveTab(key as SettingsTab)}
@@ -856,230 +805,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
                                     </motion.div>
                                 )}
-
-                                {activeTab === 'proxy' && (
-                                    <motion.section
-                                        key="proxy"
-                                        initial={{ opacity: 0, x: -20 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        exit={{ opacity: 0, x: 20 }}
-                                        transition={{ type: 'spring', damping: 25, stiffness: 220, opacity: { duration: 0.15 } }}
-                                        className="space-y-3 w-full"
-                                    >
-                                <h3 className="text-xs font-semibold text-telegram-subtext uppercase tracking-wider flex items-center gap-2">
-                                    <Shield className="w-3.5 h-3.5" />
-                                    {t('settings.proxy_config')}
-                                </h3>
-
-                                {/* Enable Proxy */}
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div className="flex items-center gap-2">
-                                        <div className={`w-2.5 h-2.5 rounded-full ${
-                                            !settings.proxyEnabled || !settings.proxyLiveStateEnabled
-                                                ? 'bg-gray-500' 
-                                                : !proxyStatus 
-                                                    ? 'bg-amber-400 animate-pulse shadow-[0_0_6px_rgba(251,191,36,0.5)]' 
-                                                    : proxyStatus.reachable 
-                                                        ? 'bg-green-400 shadow-[0_0_6px_rgba(74,222,128,0.5)]' 
-                                                        : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
-                                        }`} />
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-sm text-telegram-text font-medium">{t('common.enable_proxy')}</p>
-                                                {settings.proxyEnabled && (
-                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-telegram-subtext font-mono">
-                                                        {!settings.proxyLiveStateEnabled
-                                                            ? t('settings.proxy_status_off') || 'Off'
-                                                            : !proxyStatus 
-                                                                ? t('settings.proxy_status_checking') || 'Checking…' 
-                                                                : proxyStatus.reachable 
-                                                                    ? `${t('settings.proxy_status_connected') || 'Connected'} (${proxyStatus.latency_ms}ms)` 
-                                                                    : t('settings.proxy_status_unreachable') || 'Unreachable'}
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <p className="text-xs text-telegram-subtext">{t('settings.enable_proxy_desc')}</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => updateSetting('proxyEnabled', !settings.proxyEnabled)}
-                                        className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${settings.proxyEnabled ? 'bg-telegram-primary' : 'bg-telegram-border'}`}
-                                    >
-                                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${settings.proxyEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                                    </button>
-                                </div>
-
-                                {/* Live Connection Monitoring */}
-                                {settings.proxyEnabled && (
-                                    <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                        <div>
-                                            <p className="text-sm text-telegram-text font-medium">{t('settings.live_state') || 'Live Connection Monitoring'}</p>
-                                            <p className="text-xs text-telegram-subtext">{t('settings.live_state_desc') || 'Periodically check connectivity and display latency'}</p>
-                                        </div>
-                                        <button
-                                            onClick={() => updateSetting('proxyLiveStateEnabled', !settings.proxyLiveStateEnabled)}
-                                            className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${settings.proxyLiveStateEnabled ? 'bg-telegram-primary' : 'bg-telegram-border'}`}
-                                        >
-                                            <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${settings.proxyLiveStateEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* Proxy Type */}
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div>
-                                        <p className="text-sm text-telegram-text font-medium">{t('common.proxy_type')}</p>
-                                        <p className="text-xs text-telegram-subtext">
-                                            {settings.proxyType === 'socks5' 
-                                                ? t('settings.socks5_desc') 
-                                                : t('settings.http_bridge_desc') || 'HTTP/HTTPS proxy tunneling via local SOCKS5 bridge.'}
-                                        </p>
-                                    </div>
-                                    <div className="relative">
-                                        <select
-                                            value={settings.proxyType}
-                                            onChange={e => updateSetting('proxyType', e.target.value as 'socks5' | 'http' | 'https')}
-                                            className="appearance-none bg-telegram-bg border border-telegram-border rounded-md pl-3 pr-8 py-1.5 text-sm text-telegram-text focus:outline-none focus:border-telegram-primary/50 transition cursor-pointer"
-                                        >
-                                            <option value="socks5">SOCKS5</option>
-                                            <option value="http">HTTP</option>
-                                            <option value="https">HTTPS</option>
-                                        </select>
-                                        <ChevronDown className="w-4 h-4 text-telegram-subtext absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                    </div>
-                                </div>
-
-                                {/* Host */}
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div>
-                                        <p className="text-sm text-telegram-text font-medium">{t('common.host')}</p>
-                                        <p className="text-xs text-telegram-subtext">{t('settings.host_desc')}</p>
-                                    </div>
-                                    <input
-                                        type="text"
-                                        placeholder="e.g. 127.0.0.1"
-                                        value={settings.proxyHost}
-                                        onChange={e => updateSetting('proxyHost', e.target.value)}
-                                        className="w-40 bg-telegram-bg border border-telegram-border rounded-md px-2 py-1 text-sm text-telegram-text text-right focus:outline-none focus:border-telegram-primary/50 transition placeholder:text-telegram-subtext/40"
-                                    />
-                                </div>
-
-                                {/* Port */}
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div>
-                                        <p className="text-sm text-telegram-text font-medium">{t('common.port')}</p>
-                                        <p className="text-xs text-telegram-subtext">{t('settings.port_desc')}</p>
-                                    </div>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        max="65535"
-                                        value={settings.proxyPort}
-                                        onChange={e => updateSetting('proxyPort', Math.max(1, Math.min(65535, parseInt(e.target.value) || 1080)))}
-                                        className="w-20 bg-telegram-bg border border-telegram-border rounded-md px-2 py-1 text-sm text-telegram-text text-center focus:outline-none focus:border-telegram-primary/50 transition"
-                                    />
-                                </div>
-
-                                {/* SOCKS5/HTTP auth fields */}
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div>
-                                        <p className="text-sm text-telegram-text font-medium">{t('common.username')}</p>
-                                        <p className="text-xs text-telegram-subtext">{t('settings.optional')}</p>
-                                    </div>
-                                    <input
-                                        type="text"
-                                        placeholder={t('settings.optional')}
-                                        value={settings.proxyUsername}
-                                        onChange={e => updateSetting('proxyUsername', e.target.value)}
-                                        className="w-40 bg-telegram-bg border border-telegram-border rounded-md px-2 py-1 text-sm text-telegram-text text-right focus:outline-none focus:border-telegram-primary/50 transition placeholder:text-telegram-subtext/40"
-                                    />
-                                </div>
-                                <div className="flex items-center justify-between p-3 rounded-lg bg-telegram-hover/50">
-                                    <div>
-                                        <p className="text-sm text-telegram-text font-medium">{t('common.password')}</p>
-                                        <p className="text-xs text-telegram-subtext">{t('settings.optional')}</p>
-                                    </div>
-                                    <input
-                                        type="password"
-                                        placeholder={t('settings.optional')}
-                                        value={settings.proxyPassword}
-                                        onChange={e => updateSetting('proxyPassword', e.target.value)}
-                                        className="w-40 bg-telegram-bg border border-telegram-border rounded-md px-2 py-1 text-sm text-telegram-text text-right focus:outline-none focus:border-telegram-primary/50 transition placeholder:text-telegram-subtext/40"
-                                    />
-                                </div>
-
-                                {/* Info note */}
-                                <div className="p-3 rounded-lg bg-yellow-500/5 border border-yellow-500/10 space-y-3">
-                                    <p className="text-[11px] text-yellow-400/70 leading-relaxed">
-                                        {t('settings.proxy_reconnect_note')}
-                                    </p>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={async () => {
-                                                setReconnecting(true);
-                                                try {
-                                                    const ok = await invoke<boolean>('cmd_reconnect_with_network_settings');
-                                                    if (ok) {
-                                                        toast.success(t('settings.reconnect_success_toast'));
-                                                    } else {
-                                                        toast.error(t('settings.reconnect_failed_toast'));
-                                                    }
-                                                } catch (e) {
-                                                    toast.error(t('settings.reconnect_failed_err_toast', { error: e }));
-                                                } finally {
-                                                    setReconnecting(false);
-                                                }
-                                            }}
-                                            disabled={reconnecting}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-telegram-primary/10 text-telegram-primary hover:bg-telegram-primary/20 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                                        >
-                                            {reconnecting ? (
-                                                <>
-                                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                                    {t('settings.reconnecting')}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <RefreshCw className="w-3 h-3" />
-                                                    {t('settings.reconnect_now')}
-                                                </>
-                                            )}
-                                        </button>
-                                        <button
-                                            onClick={async () => {
-                                                setIsTestingProxy(true);
-                                                try {
-                                                    const success = await invoke<boolean>('cmd_test_proxy_traffic');
-                                                    if (success) {
-                                                        toast.success(t('settings.proxy_test_success') || 'Proxy connection working!');
-                                                    } else {
-                                                        toast.error(t('settings.proxy_test_failed') || 'Proxy traffic test failed.');
-                                                    }
-                                                } catch (e) {
-                                                    toast.error(`Error testing proxy: ${e}`);
-                                                } finally {
-                                                    setIsTestingProxy(false);
-                                                }
-                                            }}
-                                            disabled={isTestingProxy || reconnecting || !settings.proxyEnabled}
-                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 text-telegram-text hover:bg-white/10 transition disabled:opacity-30 disabled:cursor-not-allowed"
-                                        >
-                                            {isTestingProxy ? (
-                                                <>
-                                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                                    {t('settings.proxy_testing') || 'Testing…'}
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Play className="w-3.5 h-3.5" />
-                                                    {t('settings.test_connection') || 'Test Connection'}
-                                                </>
-                                            )}
-                                        </button>
-                                    </div>
-                                </div>
-                            </motion.section>
-                        )}
 
                         {activeTab === 'vpn' && (
                                     <motion.section

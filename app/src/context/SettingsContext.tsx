@@ -9,40 +9,30 @@ export interface Settings {
     maxConcurrentDownloads: number;
     language: SupportedLanguage;
 
-    // ── Proxy ──────────────────────────────────────────────
-    proxyEnabled: boolean;
-    proxyType: 'socks5' | 'http' | 'https';  // SOCKS5 or HTTP/HTTPS via local SOCKS5 bridge
-    proxyHost: string;
-    proxyPort: number;
-    proxyUsername: string;
-    proxyPassword: string;   // SOCKS5
-    proxyLiveStateEnabled: boolean;
-
     // ── Sidebar ─────────────────────────────────────────────
     sidebarCollapsed: boolean;
     hideGroups: boolean;
 
-    // ── VPN Optimizer (master toggle) ─────────────────────
-    vpnMode: boolean;
-
-    // Individual controls (active only when vpnMode = true)
-    timeoutMultiplier: number;       // 1–5
-    retryAttempts: number;           // 0–5
-    retryBaseBackoffSec: number;     // 0.5–5
-    retryMaxBackoffSec: number;      // 8–60
-    adaptivePolling: boolean;
-    pollingMinSec: number;           // 10–30
-    pollingMaxSec: number;           // 45–120
-    preferredDC: 'auto' | 'dc1' | 'dc2' | 'dc3' | 'dc4' | 'dc5';
-    dcFallbackAttempts: number;      // 1–4
-    floodWaitRespect: boolean;
-    peerCacheSize: number;           // 100–2000
-    bandwidthLimitUpKBs: number;     // 0 = unlimited, KB/s
-    bandwidthLimitDownKBs: number;   // 0 = unlimited, KB/s
-    chunkSizeKb: number;             // 128, 256, 512
-    keepAliveIntervalSec: number;    // 0 = disabled, 30–120
-    autoDetectVpn: boolean;
-    archiveMaxBytes: number;           // 0 = unlimited, MiB for bulk archive (API)
+    // Legacy values are retained only while existing local settings are migrated.
+    // They are no longer rendered or sent to the backend.
+    vpnMode?: boolean;
+    timeoutMultiplier?: number;
+    retryAttempts?: number;
+    retryBaseBackoffSec?: number;
+    retryMaxBackoffSec?: number;
+    adaptivePolling?: boolean;
+    pollingMinSec?: number;
+    pollingMaxSec?: number;
+    preferredDC?: 'auto' | 'dc1' | 'dc2' | 'dc3' | 'dc4' | 'dc5';
+    dcFallbackAttempts?: number;
+    floodWaitRespect?: boolean;
+    peerCacheSize?: number;
+    bandwidthLimitUpKBs?: number;
+    bandwidthLimitDownKBs?: number;
+    chunkSizeKb?: number;
+    keepAliveIntervalSec?: number;
+    autoDetectVpn?: boolean;
+    archiveMaxBytes?: number;
 
     windowsAutostart: boolean;       // Launch on Windows Startup
 
@@ -57,38 +47,9 @@ const defaultSettings: Settings = {
     maxConcurrentDownloads: 6,
     language: 'en',
 
-    // Proxy — off by default
-    proxyEnabled: false,
-    proxyType: 'socks5',
-    proxyHost: '',
-    proxyPort: 1080,
-    proxyUsername: '',
-    proxyPassword: '',
-    proxyLiveStateEnabled: true,
-
     // Sidebar
     sidebarCollapsed: false,
     hideGroups: false,
-
-    // VPN Optimizer — off by default (preserves existing behaviour)
-    vpnMode: false,
-    timeoutMultiplier: 3,
-    retryAttempts: 3,
-    retryBaseBackoffSec: 1,
-    retryMaxBackoffSec: 30,
-    adaptivePolling: true,
-    pollingMinSec: 15,
-    pollingMaxSec: 60,
-    preferredDC: 'auto',
-    dcFallbackAttempts: 2,
-    floodWaitRespect: true,
-    peerCacheSize: 500,
-    bandwidthLimitUpKBs: 0,
-    bandwidthLimitDownKBs: 0,
-    chunkSizeKb: 512,
-    keepAliveIntervalSec: 0,
-    autoDetectVpn: false,
-    archiveMaxBytes: 256,  // 256 MiB
 
     windowsAutostart: false,
 
@@ -119,10 +80,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                     delete savedSettings.performanceMode;
                     // Merge with defaults so new keys are always present
                     const merged = { ...defaultSettings, ...savedSettings };
-                    // Backward compat: map old 'mtproto' proxyType to 'socks5'
-                    if ((merged.proxyType as string) === 'mtproto') {
-                        merged.proxyType = 'socks5';
-                    }
                     setSettings(merged);
                 }
             } catch {

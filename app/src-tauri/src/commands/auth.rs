@@ -91,27 +91,7 @@ pub async fn ensure_client_initialized(
         }
     };
         
-    let net_config = app_handle.state::<Arc<crate::vpn_optimizer::NetworkConfig>>();
-    let preferred_dc = {
-        let vpn = net_config.vpn.read().unwrap();
-        if vpn.enabled {
-            vpn.preferred_dc.clone()
-        } else {
-            "auto".to_string()
-        }
-    };
-    if preferred_dc.starts_with("dc") && preferred_dc.len() > 2 {
-        if let Ok(dc_id) = preferred_dc[2..].parse::<i32>() {
-            log::info!("Setting preferred home DC ID: {}", dc_id);
-            session.set_home_dc_id(dc_id);
-        }
-    }
-
-    let mut connection_params = grammers_mtsender::ConnectionParams::default();
-    if let Some(proxy_url) = net_config.effective_proxy_url() {
-        log::info!("Using proxy: {}", proxy_url);
-        connection_params.proxy_url = Some(proxy_url);
-    }
+    let connection_params = grammers_mtsender::ConnectionParams::default();
 
     let session = Arc::new(session);
     let pool = SenderPool::with_configuration(session, api_id, connection_params);

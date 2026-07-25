@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.9.29] - 2026-07-25
+
+### Direct Transfers
+
+- Removed proxy and VPN/network-optimizer controls and their backend paths. Teledrive now uses direct Telegram connections only.
+- Removed application-side upload and download bandwidth throttling while retaining Telegram `FLOOD_WAIT` handling and retry safeguards.
+- Simplified network availability checks to direct Telegram data-center connectivity.
+
+### Project Operations
+
+- Added repository-owned AI-agent instructions, a technical handoff, and a release runbook for consistent future maintenance and CI/CD.
+
 ## [1.9.28] - 2026-07-18
 
 ### English Captions

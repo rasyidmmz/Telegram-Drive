@@ -11,7 +11,7 @@ use crate::models::{
 use crate::bandwidth::BandwidthManager;
 use crate::commands::utils::{resolve_peer, map_error};
 use crate::vpn_optimizer::{NetworkConfig, backoff_ms};
-use crate::transfer_retry::{should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
+use crate::transfer_retry::{flood_wait_retry_attempts, should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
 use crate::split_manifest::{
     is_split_manifest_candidate, validate_split_manifest, MAX_SPLIT_MANIFEST_BYTES,
 };
@@ -34,9 +34,13 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 static UPLOAD_CANCELLATIONS: OnceLock<Mutex<HashMap<String, oneshot::Sender<()>>>> = OnceLock::new();
 
-const TELEGRAM_SINGLE_FILE_LIMIT: u64 = 2 * 1024 * 1024 * 1024;
+const TELEGRAM_SINGLE_FILE_LIMIT: u64 = 2_000_000_000;
 const SPLIT_PART_SIZE: u64 = 512 * 1024 * 1024;
 const SPLIT_TEMP_BUFFER: usize = 1024 * 1024;
+
+fn requires_split_upload(size: u64) -> bool {
+    size > TELEGRAM_SINGLE_FILE_LIMIT
+}
 
 #[derive(Debug, Serialize)]
 pub struct SplitHealthReport {
@@ -69,6 +73,17 @@ impl SplitHealthReport {
             part_count: manifest.parts.len(),
             issues,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_files_above_telegram_safe_single_file_limit() {
+        assert!(!requires_split_upload(TELEGRAM_SINGLE_FILE_LIMIT));
+        assert!(requires_split_upload(2_099_465_912));
     }
 }
 
@@ -301,13 +316,10 @@ struct ProgressPayload {
 pub(crate) struct ProgressReader {
     inner: tokio::io::BufReader<tokio::fs::File>,
     bytes_read: std::sync::Arc<std::sync::atomic::AtomicU64>,
-    start_time: std::time::Instant,
-    limit: u64,
-    sleep_future: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl ProgressReader {
-    pub(crate) async fn new(path: &str, limit: u64) -> Result<(Self, u64, std::sync::Arc<std::sync::atomic::AtomicU64>), String> {
+    pub(crate) async fn new(path: &str, _limit: u64) -> Result<(Self, u64, std::sync::Arc<std::sync::atomic::AtomicU64>), String> {
         let file = tokio::fs::File::open(path).await.map_err(|e| e.to_string())?;
         let metadata = file.metadata().await.map_err(|e| e.to_string())?;
         let size = metadata.len();
@@ -315,9 +327,6 @@ impl ProgressReader {
         let reader = Self {
             inner: tokio::io::BufReader::new(file),
             bytes_read: counter.clone(),
-            start_time: std::time::Instant::now(),
-            limit,
-            sleep_future: None,
         };
         Ok((reader, size, counter))
     }
@@ -329,45 +338,13 @@ impl tokio::io::AsyncRead for ProgressReader {
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        use std::future::Future;
-
-        // 1. If we are sleeping to throttle, check the sleep future first
-        if let Some(ref mut sleep) = self.sleep_future {
-            match std::pin::Pin::new(sleep).poll(cx) {
-                std::task::Poll::Ready(()) => {
-                    self.sleep_future = None;
-                }
-                std::task::Poll::Pending => {
-                    return std::task::Poll::Pending;
-                }
-            }
-        }
-
-        // 2. Perform the read
+        // Perform the read without application-side rate limiting.
         let before = buf.filled().len();
         let result = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
         if let std::task::Poll::Ready(Ok(())) = &result {
             let after = buf.filled().len();
             let delta = (after - before) as u64;
             self.bytes_read.fetch_add(delta, std::sync::atomic::Ordering::Relaxed);
-
-            // 3. Throttle if limit is active
-            let limit = self.limit;
-            if limit > 0 {
-                let current_bytes = self.bytes_read.load(std::sync::atomic::Ordering::Relaxed);
-                let elapsed = self.start_time.elapsed().as_secs_f64();
-                if elapsed > 0.01 {
-                    let current_rate = current_bytes as f64 / elapsed;
-                    if current_rate > limit as f64 {
-                        let target_time = current_bytes as f64 / limit as f64;
-                        let needed_sleep = target_time - elapsed;
-                        if needed_sleep > 0.005 {
-                            let sleep_duration = std::time::Duration::from_secs_f64(needed_sleep);
-                            self.sleep_future = Some(Box::pin(tokio::time::sleep(sleep_duration)));
-                        }
-                    }
-                }
-            }
         }
         result
     }
@@ -605,6 +582,7 @@ async fn upload_path_and_send(
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let respect_flood = net_config.should_respect_flood_wait();
+    let flood_wait_attempts = flood_wait_retry_attempts(configured_attempts);
     let mut attempt = 0;
     let mut attempts_made = 0;
     let mut last_err = String::new();
@@ -699,7 +677,7 @@ async fn upload_path_and_send(
                 );
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        if attempt >= configured_attempts {
+                        if attempt >= flood_wait_attempts {
                             break;
                         }
                         tokio::time::sleep(std::time::Duration::from_secs(secs.min(300))).await;
@@ -741,27 +719,39 @@ async fn upload_path_and_send(
     let message = InputMessage::new().text(caption).file(uploaded_file);
     let mut last_err = String::new();
 
-    for attempt in 0..=configured_attempts {
+    let max_send_attempts = if respect_flood {
+        flood_wait_attempts
+    } else {
+        configured_attempts
+    };
+    let mut send_attempts_made = 0;
+    for attempt in 0..=max_send_attempts {
+        send_attempts_made = attempt + 1;
         match client.send_message(peer, message.clone()).await {
             Ok(msg) => return Ok(msg.id()),
             Err(e) => {
                 let err = map_error(e);
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        tokio::time::sleep(std::time::Duration::from_secs(secs.min(300))).await;
                         last_err = err;
-                        continue;
+                        if attempt < max_send_attempts {
+                            tokio::time::sleep(std::time::Duration::from_secs(secs.min(300))).await;
+                            continue;
+                        }
+                        break;
                     }
                 }
                 last_err = err;
                 if attempt < configured_attempts {
                     tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(attempt, base_ms, max_ms))).await;
+                } else {
+                    break;
                 }
             }
         }
     }
 
-    Err(format!("Send failed after {} attempts: {}", configured_attempts + 1, last_err))
+    Err(format!("Send failed after {} attempts: {}", send_attempts_made, last_err))
 }
 
 pub(crate) async fn delete_message_ids(
@@ -1430,7 +1420,7 @@ async fn cmd_upload_file_inner(
     if user_limit > 0 {
         limit = user_limit;
     }
-    if size > TELEGRAM_SINGLE_FILE_LIMIT {
+    if requires_split_upload(size) {
         let result = upload_large_file_split(
             &path,
             folder_id,
@@ -1456,6 +1446,7 @@ async fn cmd_upload_file_inner(
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let respect_flood = net_config.should_respect_flood_wait();
+    let flood_wait_attempts = flood_wait_retry_attempts(configured_attempts);
     let mut last_err = String::new();
     let mut attempts_made = 0;
     let mut uploaded_file = None;
@@ -1566,7 +1557,7 @@ async fn cmd_upload_file_inner(
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        if attempt >= configured_attempts {
+                        if attempt >= flood_wait_attempts {
                             break;
                         }
                         let wait = secs.min(300);
@@ -1674,13 +1665,20 @@ async fn cmd_upload_file_inner(
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
     // VPN-aware retry logic for send_message
-    let max_retries = net_config.retry_attempts();
+    let configured_retries = net_config.retry_attempts();
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let respect_flood = net_config.should_respect_flood_wait();
+    let max_retries = if respect_flood {
+        flood_wait_retry_attempts(configured_retries)
+    } else {
+        configured_retries
+    };
     let mut last_err = String::new();
+    let mut send_attempts_made = 0;
 
     for attempt in 0..=max_retries {
+        send_attempts_made = attempt + 1;
         match client.send_message(&peer, message.clone()).await {
             Ok(_) => {
                 // Bandwidth was already reserved by try_reserve_up at start
@@ -1698,25 +1696,30 @@ async fn cmd_upload_file_inner(
                 // Handle FLOOD_WAIT: sleep the requested time if configured
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        let wait = secs.min(300); // cap at 5 min
-                        log::info!("Respecting FLOOD_WAIT: sleeping {}s", wait);
-                        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                         last_err = err;
-                        continue;
+                        if attempt < max_retries {
+                            let wait = secs.min(300); // cap at 5 min
+                            log::info!("Respecting FLOOD_WAIT: sleeping {}s", wait);
+                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                            continue;
+                        }
+                        break;
                     }
                 }
 
                 last_err = err;
-                if attempt < max_retries {
+                if attempt < configured_retries {
                     let delay = backoff_ms(attempt, base_ms, max_ms);
                     log::info!("Retrying in {}ms...", delay);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    break;
                 }
             }
         }
     }
 
-    Err(format!("Upload failed after {} attempts: {}", max_retries + 1, last_err))
+    Err(format!("Upload failed after {} attempts: {}", send_attempts_made, last_err))
 }
 
 #[tauri::command]
@@ -2022,18 +2025,6 @@ pub async fn cmd_download_file(
             }
         }
 
-        // Bandwidth throttle: if download limit is set, sleep to maintain rate
-        let dl_limit = net_config.download_limit_bytes_per_sec();
-        if dl_limit > 0 {
-            let elapsed = last_emit_time.elapsed().as_secs_f64().max(0.001);
-            let current_rate = (downloaded - last_emit_bytes) as f64 / elapsed;
-            if current_rate > dl_limit as f64 {
-                let sleep_ms = ((current_rate / dl_limit as f64 - 1.0) * elapsed * 1000.0) as u64;
-                if sleep_ms > 0 && sleep_ms < 5000 {
-                    tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
-                }
-            }
-        }
     }
 
     // Explicitly flush, sync, and close the file before reporting completion.
@@ -2771,24 +2762,6 @@ pub async fn cmd_upload_from_url(
         .connect_timeout(std::time::Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::limited(10));
     
-    if net_config.is_proxy_active() {
-        if let Some(proxy_addr) = net_config.proxy_addr() {
-            let proxy_obj = {
-                let proxy_cfg = net_config.proxy.read().unwrap();
-                if !proxy_cfg.username.is_empty() {
-                    let encoded_user = urlencoding::encode(&proxy_cfg.username);
-                    let encoded_pass = urlencoding::encode(&proxy_cfg.password);
-                    format!("socks5://{}:{}@{}", encoded_user, encoded_pass, proxy_addr)
-                } else {
-                    format!("socks5://{}", proxy_addr)
-                }
-            };
-            if let Ok(p) = reqwest::Proxy::all(&proxy_obj) {
-                client_builder = client_builder.proxy(p);
-            }
-        }
-    }
-    
     let client = client_builder.build().map_err(|e| e.to_string())?;
 
     let res = client.get(&url).send().await.map_err(|e| e.to_string())?;
@@ -3034,17 +3007,6 @@ pub async fn cmd_upload_from_url(
                 last_emit_bytes = downloaded;
             }
 
-            let dl_limit = net_config.download_limit_bytes_per_sec();
-            if dl_limit > 0 {
-                let elapsed = last_emit_time.elapsed().as_secs_f64().max(0.001);
-                let current_rate = (downloaded - last_emit_bytes) as f64 / elapsed;
-                if current_rate > dl_limit as f64 {
-                    let sleep_ms = ((current_rate / dl_limit as f64 - 1.0) * elapsed * 1000.0) as u64;
-                    if sleep_ms > 0 && sleep_ms < 5000 {
-                        tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
-                    }
-                }
-            }
         }
 
         if let Err(e) = tokio::io::AsyncWriteExt::flush(&mut file).await {
@@ -3123,7 +3085,7 @@ pub async fn cmd_upload_from_url(
     if user_limit > 0 {
         limit = user_limit;
     }
-    if actual_size > TELEGRAM_SINGLE_FILE_LIMIT {
+    if requires_split_upload(actual_size) {
         let result = upload_large_file_split(
             &temp_file_str,
             folder_id,
@@ -3148,6 +3110,7 @@ pub async fn cmd_upload_from_url(
     let configured_attempts = net_config.retry_attempts();
     let max_attempts = upload_stream_retry_attempts(configured_attempts);
     let respect_flood = net_config.should_respect_flood_wait();
+    let flood_wait_attempts = flood_wait_retry_attempts(configured_attempts);
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let mut last_err = String::new();
@@ -3258,7 +3221,7 @@ pub async fn cmd_upload_from_url(
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        if attempt >= configured_attempts {
+                        if attempt >= flood_wait_attempts {
                             break;
                         }
                         let wait = secs.min(300);
@@ -3323,14 +3286,21 @@ pub async fn cmd_upload_from_url(
         }
     };
 
-    let max_retries = net_config.retry_attempts();
+    let configured_retries = net_config.retry_attempts();
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
     let respect_flood = net_config.should_respect_flood_wait();
+    let max_retries = if respect_flood {
+        flood_wait_retry_attempts(configured_retries)
+    } else {
+        configured_retries
+    };
     let mut last_err = String::new();
     let mut send_success = false;
+    let mut send_attempts_made = 0;
 
     for attempt in 0..=max_retries {
+        send_attempts_made = attempt + 1;
         match client.send_message(&peer, message.clone()).await {
             Ok(_) => {
                 send_success = true;
@@ -3342,17 +3312,22 @@ pub async fn cmd_upload_from_url(
 
                 if respect_flood && err.starts_with("FLOOD_WAIT_") {
                     if let Ok(secs) = err.trim_start_matches("FLOOD_WAIT_").parse::<u64>() {
-                        let wait = secs.min(300);
-                        tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
                         last_err = err;
-                        continue;
+                        if attempt < max_retries {
+                            let wait = secs.min(300);
+                            tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                            continue;
+                        }
+                        break;
                     }
                 }
 
                 last_err = err;
-                if attempt < max_retries {
+                if attempt < configured_retries {
                     let delay = backoff_ms(attempt, base_ms, max_ms);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                } else {
+                    break;
                 }
             }
         }
@@ -3372,6 +3347,6 @@ pub async fn cmd_upload_from_url(
         Ok("File uploaded successfully".to_string())
     } else {
         bw_state.release_up(actual_size);
-        Err(format!("Upload failed after {} attempts: {}", max_retries + 1, last_err))
+        Err(format!("Upload failed after {} attempts: {}", send_attempts_made, last_err))
     }
 }

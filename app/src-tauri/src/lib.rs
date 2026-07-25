@@ -46,7 +46,6 @@ pub mod split_manifest;
 pub mod transfer_log;
 pub mod failure_classifier;
 pub mod split_upload_resume;
-pub mod socks5_bridge;
 
 use tauri::Manager;
 
@@ -283,26 +282,9 @@ pub fn run() {
             let transcode_arc = Arc::new(transcode_manager);
             app.manage(transcode_arc.clone());
             app.manage(fmp4_remux::Fmp4RemuxState::new());
-            let loaded_config = vpn_optimizer::load_network_config(app.handle());
-            let net_config = Arc::new(vpn_optimizer::NetworkConfig::new_with_config(loaded_config));
+            let net_config = Arc::new(vpn_optimizer::NetworkConfig::new());
             app.manage(net_config.clone());
             app.manage(commands::english_cc::EnglishCcManager::new());
-
-            // Auto-start SOCKS5 bridge on startup if HTTP/HTTPS proxy is configured
-            {
-                let start_config = net_config.clone();
-                tauri::async_runtime::spawn(async move {
-                    let (enabled, is_http_or_https) = {
-                        let proxy = start_config.proxy.read().unwrap();
-                        (proxy.enabled, proxy.proxy_type == "http" || proxy.proxy_type == "https")
-                    };
-                    if enabled && is_http_or_https {
-                        if let Err(e) = start_config.start_http_bridge().await {
-                            log::error!("Failed to auto-start SOCKS5 bridge on startup: {}", e);
-                        }
-                    }
-                });
-            }
             
             // Initialize SQLite Database
             let db_pool = db::init_db(app.handle()).map_err(|e| {
@@ -334,32 +316,6 @@ pub fn run() {
 
             // Start API server if enabled in settings
             restart_api_server(app.handle());
-
-            let ka_config = net_config.clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    let interval = ka_config.keep_alive_interval_sec();
-                    if interval == 0 {
-                        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-                        continue;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_secs(interval as u64)).await;
-                    let _ = tauri::async_runtime::spawn_blocking(|| {
-                        use std::net::TcpStream;
-                        let addr: std::net::SocketAddr = match "149.154.167.50:443".parse() {
-                            Ok(a) => a,
-                            Err(e) => {
-                                log::error!("VPN keep-alive: failed to parse DC2 address: {}", e);
-                                return;
-                            }
-                        };
-                        let _ = TcpStream::connect_timeout(
-                            &addr,
-                            std::time::Duration::from_secs(5),
-                        );
-                    }).await;
-                }
-            });
 
             Ok(())
         })
@@ -395,7 +351,6 @@ pub fn run() {
             commands::cmd_search_global,
             commands::cmd_check_connection,
             commands::cmd_is_network_available,
-            commands::cmd_test_proxy_traffic,
             commands::cmd_reconnect_with_network_settings,
             commands::cmd_clean_cache,
             commands::cmd_get_thumbnail,
@@ -410,12 +365,6 @@ pub fn run() {
             commands::cmd_delete_image_thumbnail,
             commands::cmd_zip_folder,
             commands::cmd_delete_temp_zip,
-            commands::cmd_apply_proxy_settings,
-            commands::cmd_get_proxy_status,
-            commands::cmd_apply_vpn_settings,
-            commands::cmd_get_network_config,
-            commands::cmd_check_latency,
-            commands::cmd_detect_vpn,
             commands::cmd_create_share,
             commands::cmd_list_shares,
             commands::cmd_revoke_share,
@@ -478,12 +427,6 @@ pub fn run() {
             if let Some(handle) = api_handle {
                 log::info!("Stopping API server...");
                 drop(handle.stop(true));
-            }
-
-            // 4. Stop local SOCKS5 proxy bridge (if running)
-            if let Some(net_config) = app_handle.try_state::<Arc<vpn_optimizer::NetworkConfig>>() {
-                log::info!("Stopping SOCKS5 bridge...");
-                net_config.stop_http_bridge();
             }
         }
     });
