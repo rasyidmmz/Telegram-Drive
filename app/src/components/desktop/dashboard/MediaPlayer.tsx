@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { TelegramFile } from '../../../types';
 import { isVideoFile, isAudioFile } from '../../../utils';
 import { toast } from 'sonner';
+import { recordWatchEvent } from '../../../utils/watchHistory';
 
 interface StreamInfo {
     token: string;
@@ -51,6 +52,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
             invoke('cmd_play_in_mpv', { url: streamUrl, messageId: file.id, folderId: file.folder_id })
                 .then(() => {
                     setIsPlayingInMpv(true);
+                    recordWatchEvent(file, 'started');
                 })
                 .catch((err) => {
                     console.error('Failed to play in MPV:', err);
@@ -59,7 +61,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     toast.error(`Gagal memutar di MPV: ${errMsg}`);
                 });
         }
-    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id]);
+    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id, file]);
 
     // Handle keyboard shortcuts (Left/Right arrow keys for navigation, Esc for close)
     useEffect(() => {

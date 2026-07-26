@@ -23,6 +23,9 @@ import { RenameFolderModal } from './dashboard/RenameFolderModal';
 import { RenameFileModal } from './dashboard/RenameFileModal';
 import { RemoteUploadModal } from './dashboard/RemoteUploadModal';
 import { LogsModal } from './dashboard/LogsModal';
+import { RecentWatchBar } from './dashboard/RecentWatchBar';
+import { WatchLogsModal } from './dashboard/WatchLogsModal';
+import { getRecentWatchHistory, WatchHistoryEntry } from '../../utils/watchHistory';
 import { Link, Copy, Check, X, Loader2 } from 'lucide-react';
 
 // Hooks
@@ -60,6 +63,16 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [showMoveModal, setShowMoveModal] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [showLogs, setShowLogs] = useState(false);
+    const [showWatchLogs, setShowWatchLogs] = useState(false);
+    const [watchHistory, setWatchHistory] = useState<WatchHistoryEntry[]>([]);
+
+    const refreshWatchHistory = useCallback(() => {
+        setWatchHistory(getRecentWatchHistory());
+    }, []);
+
+    useEffect(() => {
+        refreshWatchHistory();
+    }, [refreshWatchHistory]);
     const [searchTerm, setSearchTerm] = useState("");
     const [searchResults, setSearchResults] = useState<TelegramFile[]>([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -690,6 +703,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onSearchChange={setSearchTerm}
                     onSettingsClick={() => setShowSettings(true)}
                     onLogsClick={() => setShowLogs(true)}
+                    onWatchLogsClick={() => setShowWatchLogs(true)}
                     onRemoteUploadClick={() => setShowRemoteUpload(true)}
                 />
                 {searchTerm.length > 2 && (
@@ -699,6 +713,24 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         </h2>
                     </div>
                 )}
+                <div className="px-6 pt-4">
+                    <RecentWatchBar
+                        entries={watchHistory}
+                        onPlay={(entry) => {
+                            const targetFile = displayedFiles.find(f => f.id === entry.file_id) || ({
+                                id: entry.file_id,
+                                name: entry.file_name,
+                                type: 'file',
+                                size: entry.file_size,
+                                sizeStr: formatBytes(entry.file_size),
+                                date: entry.timestamp,
+                                folder_id: entry.folder_id ?? undefined
+                            } as unknown as TelegramFile);
+                            setPlayingFile(targetFile);
+                        }}
+                        onRefresh={refreshWatchHistory}
+                    />
+                </div>
                 <FileExplorer
                     folders={folders}
                     files={displayedFiles}
@@ -876,6 +908,13 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         </button>
                     </div>
                 </div>
+            )}
+
+            {showWatchLogs && (
+                <WatchLogsModal onClose={() => {
+                    setShowWatchLogs(false);
+                    refreshWatchHistory();
+                }} />
             )}
         </div>
     );

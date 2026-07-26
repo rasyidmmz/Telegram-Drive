@@ -1,4 +1,4 @@
-import { HardDrive, LayoutGrid, Sun, Moon, Settings, Share2, X, Globe, ScrollText } from 'lucide-react';
+import { HardDrive, LayoutGrid, Sun, Moon, Settings, Share2, X, Globe, ScrollText, Film } from 'lucide-react';
 import { useTheme } from '../../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import { useErrorLogs } from '../../../errorLogs';
@@ -18,13 +18,14 @@ interface TopBarProps {
     onSearchChange: (term: string) => void;
     onSettingsClick: () => void;
     onLogsClick: () => void;
+    onWatchLogsClick?: () => void;
     onRemoteUploadClick: () => void;
 }
 
 export function TopBar({
     currentFolderName, selectedIds, onShowMoveModal, onBulkDownload, onBulkDelete, onBulkShare,
     onDownloadFolder, onClearSelection, viewMode, setViewMode, searchTerm, onSearchChange, onSettingsClick,
-    onLogsClick, onRemoteUploadClick
+    onLogsClick, onWatchLogsClick, onRemoteUploadClick
 }: TopBarProps) {
     const { theme, toggleTheme } = useTheme();
     const { t } = useTranslation();
@@ -95,17 +96,30 @@ export function TopBar({
 
                 <div className="w-px h-6 bg-telegram-border mx-1"></div>
 
+                {onWatchLogsClick && (
+                    <button
+                        onClick={onWatchLogsClick}
+                        className="p-2 hover:bg-telegram-hover rounded-md text-telegram-subtext hover:text-cyan-400 transition relative group"
+                        title="Watch History Logs"
+                    >
+                        <Film className="w-5 h-5" />
+                        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] bg-telegram-surface border border-telegram-border px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                            Watch Logs
+                        </span>
+                    </button>
+                )}
+
                 <button
                     onClick={onLogsClick}
                     className="p-2 hover:bg-telegram-hover rounded-md text-telegram-subtext hover:text-telegram-text transition relative group"
-                    title="Logs"
+                    title="Error Logs"
                 >
                     <ScrollText className="w-5 h-5" />
                     {errorLogs.length > 0 && (
                         <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 ring-2 ring-telegram-surface" />
                     )}
                     <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] bg-telegram-surface border border-telegram-border px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
-                        Logs
+                        Error Logs
                     </span>
                 </button>
 

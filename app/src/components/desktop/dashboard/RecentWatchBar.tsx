@@ -1,0 +1,102 @@
+import { Play, Clock, Trash2, History } from 'lucide-react';
+import { WatchHistoryEntry, removeWatchEntry, clearWatchHistory } from '../../../utils/watchHistory';
+import { formatBytes } from '../../../utils';
+
+interface RecentWatchBarProps {
+    entries: WatchHistoryEntry[];
+    onPlay: (entry: WatchHistoryEntry) => void;
+    onRefresh: () => void;
+}
+
+export function RecentWatchBar({ entries, onPlay, onRefresh }: RecentWatchBarProps) {
+    if (!entries || entries.length === 0) return null;
+
+    const handleRemove = (e: React.MouseEvent, fileId: number) => {
+        e.stopPropagation();
+        removeWatchEntry(fileId);
+        onRefresh();
+    };
+
+    const handleClearAll = () => {
+        clearWatchHistory();
+        onRefresh();
+    };
+
+    return (
+        <div className="mb-6 px-1 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    <History className="w-4 h-4 text-cyan-400" />
+                    <span className="text-xs font-mono font-bold text-telegram-text uppercase tracking-wider">
+                        Continue Watching / Recent Watch
+                    </span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-900 border border-gray-800 text-cyan-400">
+                        {entries.length}
+                    </span>
+                </div>
+                <button
+                    onClick={handleClearAll}
+                    className="text-[11px] font-mono text-gray-500 hover:text-red-400 transition-colors flex items-center gap-1"
+                    title="Clear Recent Watch History"
+                >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Clear</span>
+                </button>
+            </div>
+
+            <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-800">
+                {entries.slice(0, 10).map((entry) => {
+                    const formattedDate = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    return (
+                        <div
+                            key={entry.id}
+                            onClick={() => onPlay(entry)}
+                            className="group relative flex-shrink-0 w-60 p-3 rounded-lg bg-slate-900/90 hover:bg-slate-800/90 border border-gray-800/80 hover:border-cyan-500/50 cursor-pointer transition-all duration-200 select-none shadow-sm"
+                        >
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-medium text-telegram-text truncate group-hover:text-cyan-400 transition-colors" title={entry.file_name}>
+                                        {entry.file_name}
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1 text-[10px] font-mono text-gray-400">
+                                        <span>{formatBytes(entry.file_size)}</span>
+                                        <span>·</span>
+                                        <span className="flex items-center gap-0.5">
+                                            <Clock className="w-2.5 h-2.5 text-cyan-400" />
+                                            {formattedDate}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <button
+                                    onClick={(e) => handleRemove(e, entry.file_id)}
+                                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-800 text-gray-500 hover:text-red-400 transition-all"
+                                    title="Remove from history"
+                                >
+                                    <Trash2 className="w-3 h-3" />
+                                </button>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-2 border-t border-gray-800/50">
+                                {entry.quality_tag ? (
+                                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/30 text-cyan-400 uppercase">
+                                        {entry.quality_tag}
+                                    </span>
+                                ) : (
+                                    <span className="text-[9px] font-mono text-emerald-400 uppercase">
+                                        [0-DISK STREAM]
+                                    </span>
+                                )}
+
+                                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-cyan-400 group-hover:translate-x-0.5 transition-transform">
+                                    <Play className="w-3 h-3 fill-cyan-400" />
+                                    Resume
+                                </span>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+}
