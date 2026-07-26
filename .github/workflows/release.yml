@@ -35,6 +35,12 @@ jobs:
         working-directory: app
         run: npm run test:updater-signing-key
 
+      - name: Provide MPV resource placeholder for Rust validation
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force app/src-tauri/bin | Out-Null
+          New-Item -ItemType File -Force app/src-tauri/bin/mpv-x86_64-pc-windows-msvc.exe | Out-Null
+
       - name: Validate Rust source
         working-directory: app/src-tauri
         shell: pwsh
