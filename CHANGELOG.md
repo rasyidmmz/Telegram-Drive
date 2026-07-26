@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.36] - 2026-07-26
+
+### Auto-Update Minisign Security & UI Enhancements
+
+- **Configured Minisign Auto-Updater Key**: Configured brand new Minisign public key in `tauri.conf.json` for 100% automated background in-app updates.
+- **Enhanced Retro Terminal UI & Recent Watch**: Upgraded dashboard with monospace terminal indicators, `RecentWatchBar`, and dedicated `WatchLogsModal`.
+- **Signed Release Pipeline**: CI workflow auto-detects `TAURI_SIGNING_PRIVATE_KEY` repository secret and generates signed installer + updater payload artifacts (`latest.json` & `.nsis.zip`).
+
 ## [1.9.35] - 2026-07-26
 
 ### UI Overhaul & Watch History Logs
