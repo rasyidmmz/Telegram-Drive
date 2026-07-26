@@ -147,7 +147,7 @@ jobs:
             console.log('TAURI_SIGNING_PRIVATE_KEY secret detected. Enabling createUpdaterArtifacts.');
             const b64 = key.startsWith('untrusted comment:')
               ? Buffer.from(key).toString('base64')
-              : key;
+              : key.replace(/\r?\n/g, '');
             fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${b64}\n`);
             if (config.bundle) {
               config.bundle.createUpdaterArtifacts = true;

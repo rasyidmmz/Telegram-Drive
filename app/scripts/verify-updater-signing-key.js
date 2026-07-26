@@ -79,12 +79,20 @@ function verifyConfiguredSigningKey() {
     throw new Error('plugins.updater.pubkey is not configured');
   }
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teledrive-updater-key-'));
-  const probePath = path.join(tempDir, 'probe.txt');
-  const signaturePath = `${probePath}.sig`;
+  let activePrivateKey = privateKey.trim();
+  if (!activePrivateKey.startsWith('untrusted comment:') && activePrivateKey.length > 50) {
+    try {
+      const decoded = Buffer.from(activePrivateKey, 'base64').toString('utf8');
+      if (decoded.includes('untrusted comment:')) {
+        activePrivateKey = decoded.trim();
+      }
+    } catch (_) {}
+  }
+
   const signerEnv = {
     ...process.env,
-    TAURI_PRIVATE_KEY: privateKey,
+    TAURI_PRIVATE_KEY: activePrivateKey,
+    TAURI_SIGNING_PRIVATE_KEY: activePrivateKey,
   };
   const privateKeyPassword = process.env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
   if (privateKeyPassword) {
