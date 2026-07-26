@@ -171,14 +171,29 @@ jobs:
         shell: pwsh
         run: |
           $bundleDir = 'app/src-tauri/target/release/bundle'
-          $assets = Get-ChildItem -Path $bundleDir -Recurse -File | Where-Object {
-            $_.Extension -in '.exe', '.zip' -or $_.Name -eq 'latest.json'
-          }
-          if (-not ($assets | Where-Object Extension -eq '.exe')) { throw 'NSIS installer was not generated.' }
-          if (-not ($assets | Where-Object Extension -eq '.zip')) { throw 'Updater archive was not generated.' }
-          if (-not ($assets | Where-Object Name -eq 'latest.json')) { throw 'Updater manifest was not generated.' }
+          $installer = Get-ChildItem -Path $bundleDir -Recurse -File -Filter '*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer was not generated.' }
+          $signature = Get-Item "$($installer.FullName).sig" -ErrorAction SilentlyContinue
+          if (-not $signature) { throw 'Updater signature was not generated.' }
+
           New-Item -ItemType Directory -Force release-assets | Out-Null
-          foreach ($asset in $assets) { Copy-Item $asset.FullName -Destination release-assets/$($asset.Name) -Force }
+          Copy-Item $installer.FullName -Destination "release-assets/$($installer.Name)" -Force
+          Copy-Item $signature.FullName -Destination "release-assets/$($signature.Name)" -Force
+
+          $tag = $env:GITHUB_REF_NAME
+          $version = $tag -replace '^v', ''
+          $manifest = [ordered]@{
+            version = $version
+            notes = "TeleStash $version"
+            pub_date = [DateTime]::UtcNow.ToString('o')
+            platforms = [ordered]@{
+              'windows-x86_64' = [ordered]@{
+                url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$tag/$($installer.Name)"
+                signature = (Get-Content $signature.FullName -Raw).Trim()
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path release-assets/latest.json -NoNewline
 
       - name: Upload release assets
         uses: actions/upload-artifact@v4
@@ -218,9 +233,9 @@ jobs:
             const body = changelog.slice(start + 1, end < 0 ? undefined : end).join('\n').trim();
             if (!body) throw new Error(`Empty CHANGELOG.md entry for ${version}.`);
             const assetDir = 'release-assets';
-            const assets = fs.readdirSync(assetDir).filter((file) => file.endsWith('.exe') || file.endsWith('.zip') || file === 'latest.json');
-            if (!assets.some((file) => file.endsWith('.exe')) || !assets.some((file) => file.endsWith('.zip')) || !assets.includes('latest.json')) {
-              throw new Error('Required installer, updater archive, or latest.json is missing.');
+            const assets = fs.readdirSync(assetDir).filter((file) => file.endsWith('.exe') || file.endsWith('.sig') || file === 'latest.json');
+            if (!assets.some((file) => file.endsWith('.exe')) || !assets.some((file) => file.endsWith('.sig')) || !assets.includes('latest.json')) {
+              throw new Error('Required installer, signature, or latest.json is missing.');
             }
 
             let release;
