@@ -1214,11 +1214,12 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     >
                                         <div className="flex flex-col items-center py-6 space-y-5">
                                             {/* Logo */}
-                                            <img src="/logo.svg" className="w-16 h-16 drop-shadow-lg" alt="Teledrive Logo" />
+                                            <img src="/logo.svg" className="w-16 h-16 drop-shadow-lg" alt="TeleStash Logo" />
                                             
                                             {/* App Name & Version */}
                                             <div className="text-center">
-                                                <h3 className="text-base font-bold text-telegram-text">Teledrive</h3>
+                                                <h3 className="text-base font-bold text-telegram-text">TeleStash</h3>
+                                                <p className="text-xs text-telegram-primary font-medium mt-0.5">Personal Cinema Cloud & High-Speed Media Vault</p>
                                                 <p className="text-xs text-telegram-subtext mt-0.5">v{appVersion}</p>
                                             </div>
 

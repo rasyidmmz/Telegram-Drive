@@ -137,7 +137,7 @@ function AppContent() {
     return (
       <main className="h-screen w-screen flex items-center justify-center bg-telegram-bg">
         <div className="flex flex-col items-center gap-4">
-          <img src="/logo.svg" className="w-16 h-16 drop-shadow-lg animate-pulse" alt="Teledrive" />
+          <img src="/logo.svg" className="w-16 h-16 drop-shadow-lg animate-pulse" alt="TeleStash" />
           <p className="text-sm text-telegram-subtext tracking-wide">Restoring session...</p>
         </div>
       </main>
