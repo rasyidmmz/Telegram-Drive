@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.35] - 2026-07-26
+
+### UI Overhaul & Watch History Logs
+
+- **Retro Terminal Minimalist UI Overhaul**: Redesigned dashboard header, breadcrumbs, and sidebar branding with monospace terminal indicators (`[0-DISK CINEMA]`, `[4x WORKERS]`, `v1.9.35`).
+- **Recent Watch & Resume Playback**: Added `RecentWatchBar` component to track recently played movies with 1-click playback resume.
+- **Dedicated Watch History Logs**: Added `WatchLogsModal` for dedicated media playback and Whisper AI subtitle activity logging, separated from system error logs.
+- **Hardened CI Release Pipeline**: Canonical `npm run tauri build -- --bundles nsis` compilation with automatic artifact uploading via GitHub API script.
+
 ## [1.9.34] - 2026-07-26
 
 ### Rebranding & CI Release

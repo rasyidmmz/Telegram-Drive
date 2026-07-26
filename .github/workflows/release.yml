@@ -68,7 +68,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 release_id: existingRelease.id,
-                name: `Teledrive v${process.env.RELEASE_VERSION}`,
+                name: `TeleStash v${process.env.RELEASE_VERSION}`,
                 body: process.env.RELEASE_BODY,
                 draft: true
               });
@@ -80,7 +80,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   tag_name: tag,
-                  name: `Teledrive v${process.env.RELEASE_VERSION}`,
+                  name: `TeleStash v${process.env.RELEASE_VERSION}`,
                   body: process.env.RELEASE_BODY,
                   draft: true,
                   prerelease: false
@@ -165,15 +165,41 @@ jobs:
         run: npm run verify:updater-signing-key
 
       - name: Build the app
-        uses: tauri-apps/tauri-action@v0.5
+        working-directory: app
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Upload Release Assets
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
         with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
-          projectPath: ./app
-          args: '--bundles nsis'
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            const release_id = process.env.RELEASE_ID;
+            const nsisDir = path.join('app', 'src-tauri', 'target', 'release', 'bundle', 'nsis');
+            if (fs.existsSync(nsisDir)) {
+              const files = fs.readdirSync(nsisDir);
+              for (const file of files) {
+                const filePath = path.join(nsisDir, file);
+                const stat = fs.statSync(filePath);
+                if (stat.isFile() && (file.endsWith('.exe') || file.endsWith('.zip') || file === 'latest.json')) {
+                  console.log(`Uploading ${file} to release ${release_id}...`);
+                  const data = fs.readFileSync(filePath);
+                  await github.rest.repos.uploadReleaseAsset({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    release_id: release_id,
+                    name: file,
+                    data: data
+                  });
+                }
+              }
+            }
 
   publish-release:
     needs: [create-release, build-tauri]
