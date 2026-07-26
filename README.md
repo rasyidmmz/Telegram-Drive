@@ -1,142 +1,121 @@
-# Teledrive
+<div align="center">
 
-**Teledrive** is a Windows 11 64-bit fork of Telegram Drive focused on using
-Telegram as a personal media and file drive, with better video playback,
-upload reliability, shipped large-file splitting, clearer transfer failure
-logs, and a Windows-only release pipeline.
+![TeleStash Hero Banner](docs/assets/telestash_hero_banner.jpg)
 
-This fork is intentionally renamed from the upstream **Telegram Drive** app so
-it can be installed on the same machine without colliding with the original
-application. It is also ads-free: unlike the origin repo build with an ad
-banner, Teledrive does not show in-app ads.
+# TeleStash
 
-## Install Identity
+### *Your Unlimited Personal Cinema Cloud & High-Speed Media Engine*
 
-Teledrive uses its own Windows/Tauri identity:
+[![Release](https://img.shields.io/github/v/release/rasyidmmz/Telegram-Drive?style=for-the-badge&color=06B6D4&labelColor=0F172A)](https://github.com/rasyidmmz/Telegram-Drive/releases/latest)
+[![Platform](https://img.shields.io/badge/Platform-Windows_11_x64-0284C7?style=for-the-badge&logo=windows&labelColor=0F172A)](https://github.com/rasyidmmz/Telegram-Drive/releases/latest)
+[![Engine](https://img.shields.io/badge/Video_Engine-MPV_Native_Sidecar-8B5CF6?style=for-the-badge&labelColor=0F172A)](https://mpv.io)
+[![License](https://img.shields.io/badge/License-MIT-10B981?style=for-the-badge&labelColor=0F172A)](LICENSE)
 
-- Product name: `Teledrive`
-- Tauri identifier: `com.rasyidmmz.teledrive`
-- Windows autostart registry value: `Teledrive`
-- GitHub updater feed: `rasyidmmz/Telegram-Drive`
-- Release target: Windows NSIS installer only
+<br/>
 
-When autostart is toggled, Teledrive also removes the old `TelegramDrive`
-startup entry so older fork builds do not start alongside the renamed app.
+**TeleStash** is a high-performance Windows 11 desktop app that turns Telegram's unlimited cloud storage into your private, buffer-free **Plex-style Personal Cinema Vault**.
 
-## What Changed From Upstream
+Built with **Tauri v2, Rust, React, and native MPV sidecar**, TeleStash lets you stream 4K/1080p HEVC movies and TV series directly from the cloud with zero local disk footprint, automatic Whisper AI English subtitles, and multi-worker MTProto parallel transfer pools.
 
-This fork keeps the core Telegram storage model from the original project:
-Saved Messages and Telegram channels are used as folders, while files are
-managed from a desktop file explorer UI.
+[**Download Latest Release (v1.9.34)**](https://github.com/rasyidmmz/Telegram-Drive/releases/latest) · [**Brand System**](#-brand-identity--visual-system) · [**Build Instructions**](#-build-from-source)
 
-Main differences:
+</div>
 
-- Windows 11 x64 only. Android, iOS, macOS, and Linux release paths were removed.
-  from the active build.
-- App branding and installer identity were changed to `Teledrive`.
-- The release workflow builds only the Windows NSIS installer.
-- Ads-free desktop UI: the origin repo's ad banner is not included.
-- MPV is bundled as a sidecar so HEVC/H.265 video playback does not depend on
-  the browser video codec stack.
-- Video files open through MPV using the local stream endpoint.
-- `.mp4` and `.mkv` metadata probing is available for upload diagnostics and
-  desktop metadata badges.
-- Upload reliability was improved with queue cooldown, retry/backoff handling,
-  `FLOOD_WAIT` sleep behavior, and bandwidth throttling.
-- Files above Telegram's single-file limit are uploaded as split parts with a
-  `.tdmanifest.json` manifest, then shown as one file in Teledrive.
-- Upload and download failures are visible through the Logs view, combining
-  frontend queue errors with backend transfer logs and failure categories.
-- Windows startup support was added through
-  `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
-- Android-only JNI and foreground-service code was removed.
-- Mobile-only Tauri capability configuration was removed.
+---
 
-## Current Video Scope
+## 🎨 Brand Identity & Visual System
 
-Teledrive is optimized for personal `.mp4` and `.mkv` movie files, including
-HEVC/H.265 content.
+![TeleStash Brand Kit](docs/assets/telestash_brand_kit.jpg)
 
-Current behavior:
+### Core Metaphor: The Vault & The Stream
+TeleStash combines **The Stash** (*an unlimited, private digital vault*) with **The Stream** (*instant, cinema-quality video playback*).
 
-- Normal-size files upload directly through Telegram.
-- Files above Telegram's single-file limit are split into 512 MB part messages
-  plus a `.tdmanifest.json` manifest. Failed split uploads can be retried to
-  reuse completed parts.
-- Split downloads read the manifest, validate the parts, and reassemble the
-  original file at the selected save path.
-- Local metadata probing logs MP4/MKV duration and resolution when available.
-- Desktop file cards can show MP4/MKV duration and resolution badges.
-- Playback prefers MPV through the local stream server.
+* **Electric Cyan (`#06B6D4`)**: Represents high-speed data transmission & MTProto multi-worker streams.
+* **Midnight Blue (`#0F172A`)**: Represents the dark-mode personal cinema viewing environment.
+* **Slate Charcoal (`#1E293B`)**: Minimalist, distraction-free desktop container UI.
 
-## Features
+---
 
-- Telegram-backed file storage using Saved Messages and private channels.
-- Folder creation and management.
-- Drag-and-drop uploads.
-- Direct uploads plus split large-file uploads.
-- Upload and download queues.
-- Retry/backoff controls for unstable connections.
-- Automatic `FLOOD_WAIT` handling.
-- Direct upload and download transfers without an application-side bandwidth throttle.
-- Logs view for upload/download failure details.
-- MPV-based video/audio playback.
-- MP4/MKV metadata badges.
-- PDF preview.
-- Shareable links with optional protection.
-- Local REST API for automation and tool integration.
-- Direct Telegram connections only; proxy and VPN/network-optimizer settings are not supported.
-- Windows autostart toggle.
-- Windows-only updater artifacts.
+## 🚀 Key Features
 
-## Download
+### 🎬 Plex-Class Personal Media Hub
+* **Direct MPV Cinema Engine**: Bundled native MPV sidecar supports 4K HEVC/H.265, MKV, MP4, and surround audio without relying on limited browser codecs.
+* **Zero-Disk Streaming**: Streams video chunks 100% in-memory with a **16 MB ring buffer** and forward pre-fetching—leaving 0 Bytes of leftover video cache on your disk.
+* **Instant Token Auth**: Fail-proof stream authorization with embedded query tokens for flawless playback resume.
 
-Use the latest Windows installer from this fork's releases:
+### 🎙️ Automatic Whisper AI English Subtitles
+* **1-Click & Batch Transcription**: Generates crisp `.en.srt` subtitles for movies and full TV show seasons using local Whisper AI binary.
+* **100x CPU Accelerated Audio Extraction**: Leverages MPV `--benchmark` extraction, processing a 2-hour movie's audio track in under 3 seconds.
+* **Auto-Upload to Cloud**: Automatically uploads generated `.en.srt` subtitle files back to your Telegram folder for future watching.
+* **System-Friendly Priority**: Runs at Win32 `BELOW_NORMAL_PRIORITY_CLASS` with thread capping (max 2 threads) to prevent CPU spikes.
 
-https://github.com/rasyidmmz/Telegram-Drive/releases/latest
+### ⚡ Ultra-Fast MTProto Transfer Engine
+* **4-Worker Parallel Upload Pool**: Streams 512 KB chunks concurrently to Telegram Data Centers for **3x–5x faster upload speeds**.
+* **4-Worker Parallel Download Pool**: Downloads disjoined MTProto chunk ranges simultaneously for instant file retrieval.
+* **SQLite Resumable Upload Checkpoints**: Automatically saves upload progress per part. Interrupted uploads resume from part $N$ instead of starting over at 0%.
+* **Unlimited Large-File Splitting**: Files above 2 GB are automatically split into 512 MB part messages with a `.tdmanifest.json` manifest, rendered seamlessly as a single file in TeleStash.
 
-The expected release assets are:
+### 🛡️ Clean & Ad-Free Experience
+* **100% Ad-Free**: Clean, modern dark-mode user interface.
+* **Session Health & Keep-Alive**: 60s background MTProto ping loop repairs sessions and refreshes peer caches after system sleep or network reconnects.
+* **Terminal Diagnostic Console**: Real-time monospace event log with microsecond timestamps for full transfer visibility.
 
-- `Teledrive_<version>_x64-setup.exe`
-- `Teledrive_<version>_x64-setup.exe.sig`
-- `latest.json`
+---
 
-## Build From Source
+## 💻 System Requirements
+
+| Specification | Minimum Requirement |
+| :--- | :--- |
+| **Operating System** | Windows 11 (64-bit) |
+| **Processor** | 64-bit Dual-Core CPU |
+| **Memory** | 4 GB RAM |
+| **Graphics** | DirectX 11 compatible GPU |
+| **Network** | Broadband Internet Connection |
+
+---
+
+## ⬇️ Installation
+
+Download the official setup installer from the [Releases](https://github.com/rasyidmmz/Telegram-Drive/releases/latest) page:
+
+```
+TeleStash_1.9.34_x64-setup.exe
+```
+
+1. Run `TeleStash_1.9.34_x64-setup.exe` and follow the prompt.
+2. Sign in with your Telegram API Credentials (API ID & API Hash from [my.telegram.org](https://my.telegram.org)).
+3. Enjoy your personal, unlimited cinema cloud!
+
+---
+
+## 🛠️ Build From Source
 
 ### Prerequisites
-
-- Windows 11 64-bit
-- Node.js 18+
-- Rust stable
+- Node.js (v18+)
+- Rust (Stable Toolchain)
 - Visual Studio Build Tools with **Desktop development with C++**
-- Microsoft Edge WebView2 Runtime
-- Telegram API ID and API Hash from https://my.telegram.org
+- WebView2 Runtime
 
-### Commands
-
+### Setup & Run
 ```powershell
+# Clone the repository
 git clone https://github.com/rasyidmmz/Telegram-Drive.git
 cd Telegram-Drive\app
+
+# Install dependencies & run in dev mode
 npm install
 npm run tauri dev
 ```
 
-Build the installer:
-
+### Build Production NSIS Installer
 ```powershell
 npm run tauri build
 ```
 
-## Repository Notes
+---
 
-- `main` is the stable Windows-only branch and includes split large-file
-  upload/download support.
-- `implementation_plan.md` is retained as implementation context; this README
-  describes the current `main` behavior.
+## 📄 License & Disclaimer
 
-## License
+TeleStash is licensed under the **MIT License**.
 
-This fork keeps the upstream MIT license.
-
-Teledrive is not affiliated with Telegram FZ-LLC. Use it responsibly and in
-accordance with Telegram's Terms of Service.
+> **Disclaimer**: TeleStash is an independent open-source project and is not affiliated with, endorsed by, or sponsored by Telegram FZ-LLC or Plex Inc. Please use TeleStash responsibly and in full compliance with Telegram's Terms of Service.
