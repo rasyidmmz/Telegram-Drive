@@ -8,7 +8,7 @@
       "endpoints": [
         "https://github.com/rasyidmmz/Telestash/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1OTA4Qjc5MEU3MzBGQkYKUldTL0QzTU9lWXVRVmVNbHdkMlRYVzFRdkltWVBmRmlvSit0MElQNXVkV0RKVGZwRWxhb2VpOHMK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDUzNEZFRDE2RjA4MDA3RUYKUldUdkI0RHdGdTFQVTRSSkU1MUVGR0ZmSWJocXdSSzBaSXNlUjdFZWRJV0JVNy92K2IzOGVBbUkK",
       "windows": {
         "installMode": "passive"
       }
