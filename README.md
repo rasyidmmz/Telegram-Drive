@@ -8,6 +8,7 @@
 
 [![Release](https://img.shields.io/github/v/release/rasyidmmz/Telegram-Drive?style=for-the-badge&color=06B6D4&labelColor=0F172A)](https://github.com/rasyidmmz/Telegram-Drive/releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows_11_x64-0284C7?style=for-the-badge&logo=windows&labelColor=0F172A)](https://github.com/rasyidmmz/Telegram-Drive/releases/latest)
+[![Codecs](https://img.shields.io/badge/Codecs-HEVC%2Fx265_%7C_4K_MKV_%7C_10--bit-E11D48?style=for-the-badge&labelColor=0F172A)](https://mpv.io)
 [![Engine](https://img.shields.io/badge/Video_Engine-MPV_Native_Sidecar-8B5CF6?style=for-the-badge&labelColor=0F172A)](https://mpv.io)
 [![License](https://img.shields.io/badge/License-MIT-10B981?style=for-the-badge&labelColor=0F172A)](LICENSE)
 
@@ -15,7 +16,7 @@
 
 **TeleStash** is a high-performance Windows 11 desktop app that turns Telegram's unlimited cloud storage into your private, buffer-free **Plex-style Personal Cinema Vault**.
 
-Built with **Tauri v2, Rust, React, and native MPV sidecar**, TeleStash lets you stream 4K/1080p HEVC movies and TV series directly from the cloud with zero local disk footprint, automatic Whisper AI English subtitles, and multi-worker MTProto parallel transfer pools.
+Built with **Tauri v2, Rust, React, and native MPV sidecar**, TeleStash natively streams 4K/1080p **HEVC (x265), 10-bit HDR, MKV, and MP4** movies & series directly from the cloud with zero local disk footprint, automatic Whisper AI English subtitles, and multi-worker MTProto parallel transfer pools.
 
 [**Download Latest Release (v1.9.34)**](https://github.com/rasyidmmz/Telegram-Drive/releases/latest) · [**Brand System**](#-brand-identity--visual-system) · [**Build Instructions**](#-build-from-source)
 
