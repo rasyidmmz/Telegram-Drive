@@ -1,4 +1,4 @@
-import { HardDrive, LayoutGrid, Sun, Moon, Settings, Share2, X, Globe, ScrollText, Film } from 'lucide-react';
+import { HardDrive, LayoutGrid, Sun, Moon, Settings, Share2, X, Globe, ScrollText, Film, PieChart } from 'lucide-react';
 import { useTheme } from '../../../context/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import { useErrorLogs } from '../../../errorLogs';
@@ -19,13 +19,14 @@ interface TopBarProps {
     onSettingsClick: () => void;
     onLogsClick: () => void;
     onWatchLogsClick?: () => void;
+    onAnalyticsClick?: () => void;
     onRemoteUploadClick: () => void;
 }
 
 export function TopBar({
     currentFolderName, selectedIds, onShowMoveModal, onBulkDownload, onBulkDelete, onBulkShare,
     onDownloadFolder, onClearSelection, viewMode, setViewMode, searchTerm, onSearchChange, onSettingsClick,
-    onLogsClick, onWatchLogsClick, onRemoteUploadClick
+    onLogsClick, onWatchLogsClick, onAnalyticsClick, onRemoteUploadClick
 }: TopBarProps) {
     const { theme, toggleTheme } = useTheme();
     const { t } = useTranslation();
@@ -95,6 +96,19 @@ export function TopBar({
                 </button>
 
                 <div className="w-px h-6 bg-telegram-border mx-1"></div>
+
+                {onAnalyticsClick && (
+                    <button
+                        onClick={onAnalyticsClick}
+                        className="p-2 hover:bg-telegram-hover rounded-md text-telegram-subtext hover:text-cyan-400 transition relative group"
+                        title="Storage Analytics"
+                    >
+                        <PieChart className="w-5 h-5" />
+                        <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 text-[10px] bg-telegram-surface border border-telegram-border px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                            Storage Analytics
+                        </span>
+                    </button>
+                )}
 
                 {onWatchLogsClick && (
                     <button

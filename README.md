@@ -18,7 +18,7 @@
 
 Built with **Tauri v2, Rust, React, and native MPV sidecar**, TeleStash allows you to stream 4K/1080p **HEVC (x265), 10-bit HDR, MKV, and MP4** movies and TV series directly from the cloud with zero local disk footprint, automatic Whisper AI English subtitles, and multi-worker MTProto parallel transfer pools.
 
-[**Download Latest Release (v1.9.34)**](https://github.com/rasyidmmz/Telestash/releases/latest) · [**Why TeleStash**](#-why-telestash) · [**System Architecture**](#-system-architecture) · [**Build Instructions**](#-build-from-source)
+[**Download Latest Release (v1.9.37)**](https://github.com/rasyidmmz/Telestash/releases/latest) · [**Why TeleStash**](#-why-telestash) · [**System Architecture**](#-system-architecture) · [**Build Instructions**](#-build-from-source)
 
 </div>
 
@@ -38,6 +38,7 @@ Unlike generic file management scripts or web wrappers, TeleStash is built as a 
 | :--- | :--- | :--- |
 | **Codec Support** | Limited (stutters or fails on HEVC/x265 & MKV) | **Native MPV Engine**: Smooth 4K HEVC, x265, 10-bit HDR, MKV, MP4 |
 | **Disk Consumption** | Writes large cache files to `%TEMP%` / Disk | **Zero-Disk Footprint**: 16 MB in-memory ring buffer (0 Bytes left on disk) |
+| **Binge-Watching** | Reopens player window per episode | **Native MPV Playlist**: Automatic episode-to-episode auto-play |
 | **Subtitle Generation** | Manual download & sync required | **Automated Whisper AI**: 100x fast subtitle creation & auto-cloud upload |
 | **Upload Transfer** | Single thread, starts from 0% if interrupted | **4-Worker MTProto Pool**: Parallel chunks + SQLite resumable checkpoints |
 | **Security & Ads** | Third-party proxy servers, ad banners | **Direct Telegram MTProto**: 0 ads, 0 intermediate servers, 100% private |
@@ -48,7 +49,8 @@ Unlike generic file management scripts or web wrappers, TeleStash is built as a 
 * **Ads-Free Commitment**: 100% open-source software with no ad banners, tracking scripts, or paid paywalls.
 
 ### 🎬 2. Buffer-Free Personal Cinema Experience
-* **Native MPV Sidecar Engine**: Completely circumvents web browser video limitations. Play high-bitrate 4K HEVC/x265, 10-bit HDR, and MKV files with multi-channel audio tracks smoothly.
+* **Native MPV Cinema Engine**: Play high-bitrate 4K HEVC/x265, 10-bit HDR, and MKV files with multi-channel audio tracks smoothly.
+* **MPV Native Playlist Auto-Play**: Automatically queues remaining episodes in a folder so TV series play seamlessly from episode to episode.
 * **16 MB In-Memory Ring Buffer**: Implements forward chunk pre-fetching in RAM. Video seeks jump instantly with zero stuttering.
 * **Zero-Disk Footprint**: Streamed video content is buffered entirely in memory. Closing a movie leaves **0 Bytes of temporary video files** on your SSD/HDD.
 
@@ -72,6 +74,10 @@ Unlike generic file management scripts or web wrappers, TeleStash is built as a 
 ## 🚀 Key Features
 
 * 🎥 **Native MPV Cinema Engine**: Direct hardware decoding for HEVC/x265, 10-bit HDR, MKV, MP4, and surround audio.
+* ⏭️ **MPV Native Playlist Auto-Play**: Seamless sequential auto-play for TV series and movie folders.
+* 🔔 **Windows 11 System Tray**: Background minimization with quick tray context menu ("Buka TeleStash", "Keluar").
+* 📊 **Folder Storage Analytics Dashboard**: Visual distribution charts for Video, Audio, Subtitle, and Document space allocation.
+* 🍿 **Recent Watch Bar & Dedicated Watch Logs**: Continue watching strip with instant playback resume and separate activity logs.
 * ⚡ **4-Worker Parallel MTProto Engine**: 3x–5x faster upload and download speeds via multi-connection chunk pooling.
 * 💾 **SQLite Resumable Uploads**: Auto-checkpointing lets interrupted transfers resume without data loss.
 * 🎙️ **Automated Whisper AI Subtitles**: 1-click & batch season subtitle transcription with auto-cloud backup.

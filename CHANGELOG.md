@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.37] - 2026-07-26
+
+### Media Vault Upgrades
+
+- **MPV Native Playlist Auto-Play Next Episode**: Automatically queues all remaining video files in a folder into MPV's native playlist with `--playlist-start=<index>`, enabling seamless episode-to-episode auto-play.
+- **Windows 11 System Tray & Background Minimization**: Added native System Tray context menu ("Buka TeleStash", "Keluar dari TeleStash") and intercepted window close button to minimize TeleStash silently to the notification area.
+- **Folder Storage Analytics Dashboard**: Added `StorageAnalyticsModal` for analyzing media allocation (Video, Audio, Subtitles, Documents) across folders with 1-click local cache purging.
+
 ## [1.9.36] - 2026-07-26
 
 ### Auto-Update Minisign Security & UI Enhancements

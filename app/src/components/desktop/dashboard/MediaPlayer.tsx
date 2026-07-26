@@ -19,9 +19,10 @@ interface MediaPlayerProps {
     currentIndex?: number;
     totalItems?: number;
     activeFolderId: number | null;
+    playlistFiles?: TelegramFile[];
 }
 
-export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, totalItems, activeFolderId }: MediaPlayerProps) {
+export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, totalItems, activeFolderId, playlistFiles }: MediaPlayerProps) {
     const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null);
     const [isPlayingInMpv, setIsPlayingInMpv] = useState(false);
     const [mpvError, setMpvError] = useState<string | null>(null);
@@ -49,7 +50,26 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
     // Automatically trigger MPV launch when streamUrl is ready
     useEffect(() => {
         if (isMedia && streamUrl && !isPlayingInMpv && !mpvError) {
-            invoke('cmd_play_in_mpv', { url: streamUrl, messageId: file.id, folderId: file.folder_id })
+            const playlistItems = streamInfo && playlistFiles && playlistFiles.length > 0
+                ? playlistFiles.map(f => ({
+                    url: `${streamInfo.base_url}/stream/${folderIdParam}/${f.id}?token=${streamInfo.token}`,
+                    message_id: f.id,
+                    folder_id: f.folder_id ?? undefined,
+                    title: f.name
+                }))
+                : undefined;
+
+            const startIndex = playlistFiles && playlistFiles.length > 0
+                ? playlistFiles.findIndex(f => f.id === file.id)
+                : undefined;
+
+            invoke('cmd_play_in_mpv', {
+                url: streamUrl,
+                messageId: file.id,
+                folderId: file.folder_id,
+                playlist: playlistItems,
+                startIndex: startIndex !== undefined && startIndex >= 0 ? startIndex : undefined
+            })
                 .then(() => {
                     setIsPlayingInMpv(true);
                     recordWatchEvent(file, 'started');
@@ -61,7 +81,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     toast.error(`Gagal memutar di MPV: ${errMsg}`);
                 });
         }
-    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id, file]);
+    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id, file, playlistFiles, streamInfo, folderIdParam]);
 
     // Handle keyboard shortcuts (Left/Right arrow keys for navigation, Esc for close)
     useEffect(() => {

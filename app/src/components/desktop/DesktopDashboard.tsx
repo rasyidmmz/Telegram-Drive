@@ -25,7 +25,9 @@ import { RemoteUploadModal } from './dashboard/RemoteUploadModal';
 import { LogsModal } from './dashboard/LogsModal';
 import { RecentWatchBar } from './dashboard/RecentWatchBar';
 import { WatchLogsModal } from './dashboard/WatchLogsModal';
+import { StorageAnalyticsModal } from './dashboard/StorageAnalyticsModal';
 import { getRecentWatchHistory, WatchHistoryEntry } from '../../utils/watchHistory';
+import { isVideoFile, isAudioFile } from '../../utils';
 import { Link, Copy, Check, X, Loader2 } from 'lucide-react';
 
 // Hooks
@@ -64,6 +66,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
     const [showSettings, setShowSettings] = useState(false);
     const [showLogs, setShowLogs] = useState(false);
     const [showWatchLogs, setShowWatchLogs] = useState(false);
+    const [showAnalytics, setShowAnalytics] = useState(false);
     const [watchHistory, setWatchHistory] = useState<WatchHistoryEntry[]>([]);
 
     const refreshWatchHistory = useCallback(() => {
@@ -622,6 +625,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                         currentIndex={previewContextIndex}
                         totalItems={previewContextFiles.length}
                         activeFolderId={activeFolderId}
+                        playlistFiles={displayedFiles.filter(f => isVideoFile(f.name) || isAudioFile(f.name))}
                         key="media-player"
                     />
                 )}
@@ -704,6 +708,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onSettingsClick={() => setShowSettings(true)}
                     onLogsClick={() => setShowLogs(true)}
                     onWatchLogsClick={() => setShowWatchLogs(true)}
+                    onAnalyticsClick={() => setShowAnalytics(true)}
                     onRemoteUploadClick={() => setShowRemoteUpload(true)}
                 />
                 {searchTerm.length > 2 && (
@@ -915,6 +920,14 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     setShowWatchLogs(false);
                     refreshWatchHistory();
                 }} />
+            )}
+
+            {showAnalytics && (
+                <StorageAnalyticsModal
+                    files={allFiles}
+                    folders={folders}
+                    onClose={() => setShowAnalytics(false)}
+                />
             )}
         </div>
     );

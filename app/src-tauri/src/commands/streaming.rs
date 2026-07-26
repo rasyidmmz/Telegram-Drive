@@ -37,11 +37,21 @@ pub fn cmd_get_stream_info(config: State<'_, StreamConfig>) -> StreamInfo {
     }
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct MpvPlaylistItem {
+    pub url: String,
+    pub message_id: Option<i32>,
+    pub folder_id: Option<i64>,
+    pub title: Option<String>,
+}
+
 #[tauri::command]
 pub fn cmd_play_in_mpv(
     url: String,
     message_id: Option<i32>,
     folder_id: Option<i64>,
+    playlist: Option<Vec<MpvPlaylistItem>>,
+    start_index: Option<usize>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let watch_later_dir = app_handle
@@ -52,15 +62,54 @@ pub fn cmd_play_in_mpv(
     if let Some(dir) = &watch_later_dir {
         let _ = std::fs::create_dir_all(dir);
     }
-    let mut args = build_mpv_args(&url, watch_later_dir.as_deref());
 
-    if let (Some(msg_id), Some(f_id)) = (message_id, folder_id) {
-        if let Ok(app_dir) = app_handle.path().app_data_dir() {
-            let srt_path = app_dir.join("streaming").join("captions").join(format!("{}_{}.en.srt", f_id, msg_id));
-            if srt_path.exists() {
-                args.push(format!("--sub-file={}", srt_path.to_string_lossy()));
+    let mut args = vec![
+        "--save-position-on-quit".to_string(),
+        "--write-filename-in-watch-later-config=yes".to_string(),
+        "--keep-open=no".to_string(),
+    ];
+
+    if let Some(dir) = &watch_later_dir {
+        args.push(format!("--watch-later-dir={}", dir.display()));
+    }
+
+    if let Some(items) = playlist.filter(|p| !p.is_empty()) {
+        if let Some(idx) = start_index {
+            args.push(format!("--playlist-start={}", idx));
+        }
+
+        // Add HTTP token header from the first item
+        let (_, token) = strip_token_query(&items[0].url);
+        if let Some(t) = token {
+            args.push(format!("--http-header-fields={}: {}", STREAM_TOKEN_HEADER, t));
+        }
+
+        for item in items {
+            let (stable_url, _) = strip_token_query(&item.url);
+            if let (Some(msg_id), Some(f_id)) = (item.message_id, item.folder_id) {
+                if let Ok(app_dir) = app_handle.path().app_data_dir() {
+                    let srt_path = app_dir.join("streaming").join("captions").join(format!("{}_{}.en.srt", f_id, msg_id));
+                    if srt_path.exists() {
+                        args.push(format!("--sub-file={}", srt_path.to_string_lossy()));
+                    }
+                }
+            }
+            args.push(stable_url);
+        }
+    } else {
+        let (stable_url, token) = strip_token_query(&url);
+        if let Some(t) = token {
+            args.push(format!("--http-header-fields={}: {}", STREAM_TOKEN_HEADER, t));
+        }
+        if let (Some(msg_id), Some(f_id)) = (message_id, folder_id) {
+            if let Ok(app_dir) = app_handle.path().app_data_dir() {
+                let srt_path = app_dir.join("streaming").join("captions").join(format!("{}_{}.en.srt", f_id, msg_id));
+                if srt_path.exists() {
+                    args.push(format!("--sub-file={}", srt_path.to_string_lossy()));
+                }
             }
         }
+        args.push(stable_url);
     }
 
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
