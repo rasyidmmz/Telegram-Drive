@@ -10,12 +10,51 @@
 
 </div>
 
-## Overview
+## What is TeleStash?
 
-TeleStash keeps a personal media library in Telegram-backed folders and opens
-video through its bundled MPV integration. It is designed for Windows 11
-64-bit, including HEVC/H.265 MP4 and MKV libraries, without adding proxy, VPN,
-or application bandwidth-throttling controls.
+TeleStash is a personal Windows 11 media application that organizes files in
+Telegram-backed folders and opens video through its bundled MPV integration.
+It keeps a familiar media-library workflow without requiring a separate
+streaming-server account, browser dashboard, proxy, or VPN setting.
+
+The application does not impose a library-size quota of its own. Available
+storage and file limits remain governed by the connected Telegram account and
+Telegram's service rules.
+
+## Why TeleStash?
+
+| Need | TeleStash approach |
+| --- | --- |
+| Keep a personal media library | Use Saved Messages or private channels as Telegram-backed folders. |
+| Play common personal-media formats | Hand off MP4 and MKV, including HEVC/H.265 libraries, to MPV. |
+| Keep large uploads intact | Split files above `2_000_000_000` bytes and validate their manifest before use. |
+| Recover from an interrupted transfer | Preserve upload state, retry decisions, and clear transfer diagnostics. |
+| Keep the desktop workflow simple | Use Windows tray controls, recent-watch history, signed updates, and optional autostart. |
+
+## System Architecture
+
+The data path is intentionally short: the Windows application talks directly
+to Telegram, MPV receives a local authenticated stream, and large files retain
+their validation metadata beside their Telegram parts.
+
+```mermaid
+flowchart TB
+    User[Windows 11 user] --> App[TeleStash desktop app]
+
+    subgraph Desktop[TeleStash on Windows]
+        App --> Core[Rust and Tauri core]
+        Core --> Transfer[Transfer integrity\nresume state and diagnostics]
+        Core --> Stream[Local authenticated stream]
+        Stream --> MPV[MPV playback\nMP4 MKV HEVC/H.265]
+        Core --> Captions[Whisper English CC\nlocal SRT cache]
+    end
+
+    Transfer --> Telegram[Direct Telegram connection]
+    Telegram --> Library[Saved Messages and private channels]
+    Transfer --> Split[Files over 2_000_000_000 bytes\nvalidated parts and manifest]
+    Split --> Library
+    Captions --> Library
+```
 
 ## Media Library and Playback
 

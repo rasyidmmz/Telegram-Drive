@@ -250,12 +250,11 @@ export function Sidebar({
         >
             <div className={`p-4 flex ${settings.sidebarCollapsed ? 'flex-col items-center gap-2' : 'items-center justify-between'} min-h-[64px]`}>
                 <div className="flex items-center gap-2">
-                    <img src="/logo.svg" className="w-7 h-7 drop-shadow-md" alt="Logo" />
+                    <img src="/telestash-logo.png" className="w-7 h-7 drop-shadow-md" alt="TeleStash" />
                     {!settings.sidebarCollapsed && (
                         <div className="flex flex-col">
                             <span className="font-bold text-base text-telegram-text tracking-tight flex items-center gap-1.5 font-mono">
                                 TeleStash
-                                <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-950/80 text-cyan-400 border border-cyan-500/30 uppercase font-semibold">v1.9.34</span>
                             </span>
                             <span className="text-[10px] text-cyan-500/70 font-mono tracking-widest uppercase">Personal Cinema Vault</span>
                         </div>

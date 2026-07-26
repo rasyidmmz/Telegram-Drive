@@ -935,7 +935,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     >
                                         <div className="flex flex-col items-center py-6 space-y-5">
                                             {/* Logo */}
-                                            <img src="/logo.svg" className="w-16 h-16 drop-shadow-lg" alt="TeleStash Logo" />
+                                            <img src="/telestash-logo.png" className="w-16 h-16 drop-shadow-lg" alt="TeleStash" />
                                             
                                             {/* App Name & Version */}
                                             <div className="text-center">
