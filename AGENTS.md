@@ -1,8 +1,8 @@
-# Teledrive Agent Guide
+# TeleStash Agent Guide
 
-This repository is Teledrive, a Windows 11 64-bit Tauri/React application for
-using Telegram as a personal file drive. Treat this file as the primary
-instruction set for any coding agent. Read it before editing files.
+This repository is TeleStash, a Windows 11 64-bit Tauri/React application for
+using Telegram as an unlimited personal cinema cloud and media vault. Treat this
+file as the primary instruction set for any coding agent. Read it before editing files.
 
 ## Scope
 
@@ -11,7 +11,7 @@ instruction set for any coding agent. Read it before editing files.
 - The frontend is in `app/`; the Rust/Tauri backend is in `app/src-tauri/`.
 - Use the existing local patterns. Keep changes narrow and avoid speculative
   abstractions or new dependencies.
-- Teledrive uses direct Telegram connections only. Do not reintroduce proxy,
+- TeleStash uses direct Telegram connections only. Do not reintroduce proxy,
   VPN, bandwidth-throttling, or network-optimizer settings.
 
 ## Transfer Rules
@@ -35,6 +35,7 @@ instruction set for any coding agent. Read it before editing files.
   `app/src-tauri/tauri.conf.json`.
 - Add a nonempty matching `## [x.y.z]` entry to `CHANGELOG.md`; the workflow
   fails before building if it is missing.
+- **Mandatory README Update Rule**: For every release that contains a major feature change, architectural overhaul, or significant impact on user capabilities, `README.md` MUST be updated to accurately reflect the latest features, system architecture, and capabilities.
 - Never call a release successful merely because the workflow started. Verify
   the build and release assets unless the user explicitly asks to stop after
   the workflow is triggered.

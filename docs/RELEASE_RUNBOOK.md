@@ -12,7 +12,8 @@
    - `app/src-tauri/Cargo.lock`
    - `app/src-tauri/tauri.conf.json`
 4. Add a nonempty `## [x.y.z]` section to `CHANGELOG.md`.
-5. Run `npx tsc --noEmit --pretty false` from `app/` and `git diff --check`.
+5. Update `README.md` if the release contains major feature changes, architectural overhauls, or significant user capability impacts.
+6. Run `npx tsc --noEmit --pretty false` from `app/` and `git diff --check`.
    Run focused Rust tests/checks where the local toolchain permits. Report a
    missing GNU `dlltool.exe` as a local environment limitation.
 
