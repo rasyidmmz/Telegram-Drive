@@ -40,6 +40,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force app/src-tauri/bin | Out-Null
           New-Item -ItemType File -Force app/src-tauri/bin/mpv-x86_64-pc-windows-msvc.exe | Out-Null
+          New-Item -ItemType Directory -Force app/src-tauri/resources/whisper | Out-Null
+          New-Item -ItemType File -Force app/src-tauri/resources/whisper/.gitkeep | Out-Null
 
       - name: Validate Rust source
         working-directory: app/src-tauri
