@@ -1,4 +1,4 @@
-import { Clock, Maximize } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { VideoMetadata } from '../../types';
 
 interface VideoMetaBadgeProps {
@@ -12,33 +12,39 @@ function formatDuration(secs: number): string {
     if (m >= 60) {
         const h = Math.floor(m / 60);
         const rm = m % 60;
-        return `${h}:${String(rm).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        return `${h}h ${String(rm).padStart(2, '0')}m`;
     }
-    return `${m}:${String(s).padStart(2, '0')}`;
+    return `${m}m ${String(s).padStart(2, '0')}s`;
+}
+
+function getResolutionTag(width: number): string {
+    if (width >= 3840) return '4K';
+    if (width >= 1920) return '1080p';
+    if (width >= 1280) return '720p';
+    return `${width}p`;
 }
 
 export function VideoMetaBadge({ metadata, isLoading }: VideoMetaBadgeProps) {
-    if (isLoading) return null; // don't flash a loading indicator inline
-    if (!metadata) return null;
+    if (isLoading || !metadata) return null;
 
     const hasDuration = typeof metadata.duration_secs === 'number' && metadata.duration_secs > 0;
     const hasResolution = typeof metadata.width === 'number' && metadata.width > 0;
 
     if (!hasDuration && !hasResolution) return null;
 
+    const resTag = hasResolution ? getResolutionTag(metadata.width!) : null;
+
     return (
-        <span className="inline-flex items-center gap-1.5 text-[10px] text-telegram-subtext/60 font-medium tracking-wide">
-            {hasDuration && (
-                <span className="flex items-center gap-0.5">
-                    <Clock className="w-2.5 h-2.5" />
-                    {formatDuration(metadata.duration_secs!)}
+        <span className="inline-flex items-center gap-1.5 text-[10px] font-mono tracking-wider">
+            {resTag && (
+                <span className="px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-cyan-400 font-bold uppercase">
+                    {resTag}
                 </span>
             )}
-            {hasDuration && hasResolution && <span className="opacity-40">·</span>}
-            {hasResolution && (
-                <span className="flex items-center gap-0.5">
-                    <Maximize className="w-2.5 h-2.5" />
-                    {metadata.width}×{metadata.height}
+            {hasDuration && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 border border-gray-800 text-gray-300">
+                    <Clock className="w-2.5 h-2.5 text-cyan-400" />
+                    {formatDuration(metadata.duration_secs!)}
                 </span>
             )}
         </span>
