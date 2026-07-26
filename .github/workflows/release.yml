@@ -37,7 +37,15 @@ jobs:
 
       - name: Validate Rust source
         working-directory: app/src-tauri
-        run: cargo check --locked
+        shell: pwsh
+        run: |
+          $output = & cargo check --locked --message-format short 2>&1
+          $output | ForEach-Object { Write-Host $_ }
+          if ($LASTEXITCODE -ne 0) {
+            $details = ($output | Select-Object -Last 20) -join '%0A'
+            Write-Output "::error title=Rust validation::$details"
+            exit $LASTEXITCODE
+          }
 
       - name: Validate release version and changelog
         shell: pwsh
