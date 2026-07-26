@@ -44,12 +44,12 @@ export function assertMatchingKeyIds(publicKey, signature) {
 }
 
 export function assertWindowsUpgradeConfig(config) {
-  if (config.productName !== 'Teledrive') {
-    throw new Error('Windows installer productName must remain Teledrive');
+  if (config.productName !== 'TeleStash') {
+    throw new Error('Windows installer productName must remain TeleStash');
   }
-  if (config.identifier !== 'com.rasyidmmz.teledrive') {
+  if (config.identifier !== 'com.rasyidmmz.telestash') {
     throw new Error(
-      'Windows installer identifier must remain com.rasyidmmz.teledrive',
+      'Windows installer identifier must remain com.rasyidmmz.telestash',
     );
   }
   if (!config.bundle?.targets?.includes('nsis')) {

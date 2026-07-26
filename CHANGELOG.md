@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.34] - 2026-07-26
+
+### Rebranding & CI Release
+
+- **Official Rebranding to TeleStash**: Updated application name to `TeleStash` and identifier to `com.rasyidmmz.telestash` across configuration files, installer specifications, and verification test suites.
+- **Workflow & Key Verification Guard**: Hardened GitHub Actions release workflow to gracefully process updater keys and prevent build assertion failures.
+
 ## [1.9.33] - 2026-07-26
 
 ### Core Engine Upgrades

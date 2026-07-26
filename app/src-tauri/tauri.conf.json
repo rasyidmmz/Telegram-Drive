@@ -14,9 +14,9 @@
       }
     }
   },
-  "productName": "Teledrive",
-  "version": "1.9.33",
-  "identifier": "com.rasyidmmz.teledrive",
+  "productName": "TeleStash",
+  "version": "1.9.34",
+  "identifier": "com.rasyidmmz.telestash",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -26,7 +26,7 @@
   "app": {
     "windows": [
       {
-        "title": "Teledrive",
+        "title": "TeleStash",
         "width": 1200,
         "height": 800,
         "minWidth": 1000,

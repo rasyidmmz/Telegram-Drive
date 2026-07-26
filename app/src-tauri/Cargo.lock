@@ -6089,8 +6089,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "teledrive"
-version = "1.9.33"
+name = "telestash"
+version = "1.9.34"
 dependencies = [
  "actix-cors",
  "actix-files",

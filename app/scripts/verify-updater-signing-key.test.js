@@ -43,8 +43,8 @@ test('accepts a signature created by the configured key', () => {
 
 test('requires a stable current-user NSIS upgrade identity', () => {
   const config = {
-    productName: 'Teledrive',
-    identifier: 'com.rasyidmmz.teledrive',
+    productName: 'TeleStash',
+    identifier: 'com.rasyidmmz.telestash',
     bundle: {
       targets: ['nsis'],
       windows: { nsis: { installMode: 'currentUser' } },
