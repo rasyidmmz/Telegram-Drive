@@ -79,6 +79,10 @@ function verifyConfiguredSigningKey() {
     throw new Error('plugins.updater.pubkey is not configured');
   }
 
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teledrive-updater-key-'));
+  const probePath = path.join(tempDir, 'probe.txt');
+  const signaturePath = `${probePath}.sig`;
+
   let activePrivateKey = privateKey.trim();
   if (!activePrivateKey.startsWith('untrusted comment:') && activePrivateKey.length > 50) {
     try {
