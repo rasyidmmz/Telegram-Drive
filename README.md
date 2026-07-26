@@ -65,30 +65,63 @@ Unlike generic file management scripts or web wrappers, TeleStash is built as a 
 
 ## 🏗️ System Architecture
 
+![TeleStash Architecture Diagram](docs/assets/telestash_architecture.jpg)
+
 ```mermaid
 flowchart TB
-    subgraph Client["Windows 11 Client (TeleStash App)"]
-        UI["React Frontend (Tauri Desktop UI)"]
-        CORE["Tauri Rust Core Engine"]
-        SERVER["Local HTTP Streaming Server"]
-        MPV["Native MPV Sidecar Engine"]
-        DB[("SQLite Checkpoint DB")]
-        WHISPER["Local Whisper AI Process"]
+    subgraph UI_TIER["User Interfaces Layer"]
+        UI_MAIN["React Desktop UI (Tauri Container)"]
+        UI_TRAY["Windows System Tray & Autostart"]
     end
 
-    subgraph TelegramCloud["Telegram Cloud Infrastructure"]
-        DC["Official Telegram Data Centers (MTProto)"]
-        SAVED["Saved Messages & Private Media Channels"]
+    subgraph CORE_TIER["TeleStash Core Engine (src-tauri/src/)"]
+        subgraph MOD_MODELS["models.rs"]
+            MOD_DATA["Data Models:\nFileMetadata | ChunkInfo\nSplitManifest | TransferProgress"]
+        end
+        subgraph MOD_CHECKPOINT["upload_checkpoint.rs"]
+            MOD_CHECK["SQLite Resumable Checkpoints:\nIndexed by file_id & part_index"]
+        end
+        subgraph MOD_RETRY["retry.rs & session_health.rs"]
+            MOD_HEALTH["Exponential Backoff & FLOOD_WAIT\n60s MTProto Health & Peer Cache Repair"]
+        end
+        subgraph MOD_PARALLEL["parallel_upload.rs & parallel_download.rs"]
+            MOD_WORKERS["Multi-Worker Pool:\n4x Concurrent MTProto Connections"]
+        end
+        subgraph MOD_BUFFER["streaming_buffer.rs"]
+            MOD_RING["16 MB MPV In-Memory Ring Buffer:\nForward Chunk Pre-Fetcher & Instant Seeker"]
+        end
+        subgraph MOD_STREAM["streaming.rs"]
+            MOD_HTTP["Local HTTP Streaming Server:\nToken Authentication & Range Headers"]
+        end
+        subgraph MOD_WHISPER["english_cc.rs & batch_cc_queue.rs"]
+            MOD_CC["Whisper AI Subtitle Engine:\n100x MPV Audio Benchmark & Batch Queue"]
+        end
     end
 
-    UI <-->|Tauri IPC Commands| CORE
-    CORE <-->|Read / Write Part Checkpoints| DB
-    CORE <-->|Multi-Worker 4x Parallel Streams| DC
-    DC <-->|Files & Video Chunks| SAVED
-    CORE -->|Serve Video Stream| SERVER
-    MPV <-->|Stream Playback & Header Auth| SERVER
-    CORE -->|Audio Benchmark Extraction| WHISPER
-    WHISPER -->|Auto-Upload .en.srt Subtitles| CORE
+    subgraph CLIENT_TIER["Grammers MTProto Client Layer"]
+        PROTO["MTProto Client Protocol Engine"]
+        MSG_IO["Message I/O & Channel Operations"]
+        INDEX_MGR["Index Management & Part Reassembler"]
+    end
+
+    subgraph STORAGE_TIER["Storage Model (Telegram Private Channel / Saved Messages)"]
+        subgraph PINNED["Pinned Messages"]
+            MANIFEST["Message ID (Pinned) -> SplitManifest (.tdmanifest.json)\n{ version, name, size, chunks: [ChunkInfo] }"]
+        end
+        subgraph PART_MSGS["Chunk Messages"]
+            CHUNK_0["Message 43 -> Part 0 (512 KB Data)"]
+            CHUNK_1["Message 44 -> Part 1 (512 KB Data)"]
+            CHUNK_N["Message N -> Part N (512 KB Data)"]
+        end
+    end
+
+    UI_TIER <-->|Tauri Async IPC Commands| CORE_TIER
+    CORE_TIER <-->|Read / Write Checkpoints| MOD_CHECKPOINT
+    CORE_TIER <-->|Serve 0-Disk Stream| MOD_STREAM
+    MOD_STREAM <-->|Native Hardware Decoding| MPV["Native MPV Sidecar"]
+    CORE_TIER <-->|Async Transfer Tasks| CLIENT_TIER
+    CLIENT_TIER <-->|MTProto TCP Packets| STORAGE_TIER
+    MANIFEST --> PART_MSGS
 ```
 
 ---
