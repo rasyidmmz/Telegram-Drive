@@ -1,7 +1,7 @@
 use std::path::Path;
 use tauri::{Manager, State};
 
-const STREAM_TOKEN_HEADER: &str = "X-Teledrive-Stream-Token";
+const STREAM_TOKEN_HEADER: &str = "X-TeleStash-Stream-Token";
 
 /// Holds the per-session streaming config (token + port)
 pub struct StreamConfig {
@@ -200,12 +200,12 @@ mod tests {
 
     #[test]
     fn build_mpv_args_enable_resume_and_header_auth() {
-        let dir = PathBuf::from(r"C:\Teledrive\mpv-watch-later");
+        let dir = PathBuf::from(r"C:\TeleStash\mpv-watch-later");
         let args = build_mpv_args("http://localhost:14201/stream/home/10?token=abc123", Some(&dir));
 
         assert!(args.contains(&"--save-position-on-quit".to_string()));
-        assert!(args.contains(&r"--watch-later-dir=C:\Teledrive\mpv-watch-later".to_string()));
-        assert!(args.contains(&"--http-header-fields=X-Teledrive-Stream-Token: abc123".to_string()));
+        assert!(args.contains(&r"--watch-later-dir=C:\TeleStash\mpv-watch-later".to_string()));
+        assert!(args.contains(&"--http-header-fields=X-TeleStash-Stream-Token: abc123".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("http://localhost:14201/stream/home/10"));
     }
 }

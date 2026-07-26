@@ -1,4 +1,4 @@
-# Teledrive Instructions
+# TeleStash Instructions
 
 Follow the repository root `AGENTS.md` as the source of truth. In particular:
 

@@ -9,7 +9,7 @@ export interface ErrorLogEntry {
     details?: string;
 }
 
-const STORAGE_KEY = 'teledrive.errorLogs';
+const STORAGE_KEY = 'telestash.errorLogs';
 const MAX_LOGS = 100;
 const listeners = new Set<(logs: ErrorLogEntry[]) => void>();
 let logs = readStoredLogs();

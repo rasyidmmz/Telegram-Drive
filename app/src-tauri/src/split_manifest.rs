@@ -24,8 +24,8 @@ pub(crate) fn is_split_manifest_candidate(
 }
 
 pub(crate) fn validate_split_manifest(manifest: &SplitManifest) -> Result<(), String> {
-    if manifest.teledrive_split != SPLIT_MANIFEST_VERSION {
-        return Err(format!("Unsupported split manifest version {}", manifest.teledrive_split));
+    if manifest.telestash_split != SPLIT_MANIFEST_VERSION {
+        return Err(format!("Unsupported split manifest version {}", manifest.telestash_split));
     }
     if manifest.filename.trim().is_empty() {
         return Err("Split manifest filename is empty".to_string());
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn recognizes_canonical_split_manifest_filename() {
         assert!(super::is_split_manifest_candidate(
-            "teledrive.tdmanifest.json",
+            "telestash.tdmanifest.json",
             Some("application/octet-stream"),
             392,
             "movie.mkv",
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn accepts_valid_manifest() {
         let manifest = SplitManifest {
-            teledrive_split: SPLIT_MANIFEST_VERSION,
+            telestash_split: SPLIT_MANIFEST_VERSION,
             filename: "movie.mkv".to_string(),
             size: 5,
             mime_type: "video/x-matroska".to_string(),
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn rejects_wrong_part_count() {
         let manifest = SplitManifest {
-            teledrive_split: SPLIT_MANIFEST_VERSION,
+            telestash_split: SPLIT_MANIFEST_VERSION,
             filename: "movie.mp4".to_string(),
             size: 5,
             mime_type: "video/mp4".to_string(),
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn rejects_duplicate_message_ids() {
         let manifest = SplitManifest {
-            teledrive_split: SPLIT_MANIFEST_VERSION,
+            telestash_split: SPLIT_MANIFEST_VERSION,
             filename: "movie.mp4".to_string(),
             size: 4,
             mime_type: "video/mp4".to_string(),

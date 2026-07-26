@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Standard permissions for Teledrive",
+  "description": "Standard permissions for TeleStash",
   "windows": [
     "main"
   ],

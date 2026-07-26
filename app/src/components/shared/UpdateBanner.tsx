@@ -39,7 +39,7 @@ export function UpdateBanner({
 
                         <span className="text-white font-medium">
                             {restarting ? (
-                                <>Restarting Teledrive...</>
+                                <>Restarting TeleStash...</>
                             ) : installing ? (
                                 <>Installing update...</>
                             ) : downloading ? (

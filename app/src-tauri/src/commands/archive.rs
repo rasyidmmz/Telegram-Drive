@@ -5,7 +5,7 @@ use tauri::State;
 use tokio::io::AsyncWriteExt;
 use crate::commands::TelegramState;
 use crate::commands::utils::resolve_peer;
-use crate::vpn_optimizer::NetworkConfig;
+use crate::transfer_policy::TransferPolicy;
 use grammers_client::types::Media;
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,7 +56,7 @@ pub async fn cmd_list_archive_contents(
     message_id: i32,
     folder_id: Option<i64>,
     state: State<'_, TelegramState>,
-    net_config: State<'_, Arc<NetworkConfig>>,
+    net_config: State<'_, Arc<TransferPolicy>>,
 ) -> Result<Vec<ArchiveEntry>, String> {
     let (client, media, filename, max_bytes) =
         prepare_archive_operation(message_id, folder_id, &state, &net_config).await?;
@@ -77,7 +77,7 @@ pub async fn cmd_extract_archive_entry(
     folder_id: Option<i64>,
     entry_index: usize,
     state: State<'_, TelegramState>,
-    net_config: State<'_, Arc<NetworkConfig>>,
+    net_config: State<'_, Arc<TransferPolicy>>,
 ) -> Result<ExtractedFile, String> {
     let (client, media, filename, max_bytes) =
         prepare_archive_operation(message_id, folder_id, &state, &net_config).await?;
@@ -96,7 +96,7 @@ async fn prepare_archive_operation(
     message_id: i32,
     folder_id: Option<i64>,
     state: &TelegramState,
-    net_config: &Arc<NetworkConfig>,
+    net_config: &Arc<TransferPolicy>,
 ) -> Result<(grammers_client::Client, Media, String, u64), String> {
     let client_opt = { state.client.lock().await.clone() };
     let client = match client_opt {

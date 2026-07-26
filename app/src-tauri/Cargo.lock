@@ -6090,7 +6090,7 @@ dependencies = [
 
 [[package]]
 name = "telestash"
-version = "1.9.37"
+version = "1.0.0"
 dependencies = [
  "actix-cors",
  "actix-files",

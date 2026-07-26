@@ -35,15 +35,9 @@ export function TopBar({
         <header className="h-14 border-b border-telegram-border flex items-center px-4 justify-between bg-telegram-surface/80 backdrop-blur-md sticky top-0 z-10" onClick={e => e.stopPropagation()}>
             <div className="flex-1 flex items-center justify-start gap-4">
                 <div className="flex items-center text-sm breadcrumbs text-telegram-subtext select-none font-mono">
-                    <span className="hover:text-telegram-text cursor-pointer transition-colors text-xs text-cyan-400">root</span>
+                    <span className="text-xs text-cyan-400">root</span>
                     <span className="mx-1 text-gray-600">/</span>
                     <span className="text-telegram-text font-medium text-xs">{currentFolderName}</span>
-                </div>
-                <div className="hidden xl:flex items-center gap-2 text-[10px] font-mono select-none px-2 py-0.5 rounded bg-slate-950/80 border border-gray-800 text-gray-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-emerald-400 font-bold uppercase">0-DISK CINEMA</span>
-                    <span className="text-gray-700">|</span>
-                    <span className="text-cyan-400">4x WORKERS</span>
                 </div>
             </div>
 

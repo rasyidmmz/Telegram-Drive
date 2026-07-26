@@ -110,7 +110,7 @@ export function useUpdateCheck(options: UseUpdateCheckOptions = {}) {
         try {
             await relaunch();
         } catch (err: unknown) {
-            const message = updateErrorMessage(err, 'Update installed, but Teledrive could not restart automatically');
+            const message = updateErrorMessage(err, 'Update installed, but TeleStash could not restart automatically');
             setState(s => ({
                 ...s,
                 restarting: false,

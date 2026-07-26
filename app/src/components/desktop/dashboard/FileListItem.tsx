@@ -43,6 +43,14 @@ export function FileListItem({
     return (
         <div
             onClick={(e) => onFileClick(e, file.id)}
+            role="button"
+            tabIndex={0}
+            aria-label={`${isFolder ? 'Open folder' : 'Select file'} ${file.name}`}
+            onKeyDown={(event) => {
+                if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+                event.preventDefault();
+                event.currentTarget.click();
+            }}
             onContextMenu={(e) => handleContextMenu(e, file)}
             draggable
             onDragStart={(e) => {
@@ -80,7 +88,7 @@ export function FileListItem({
                     onDrop(e, file.id);
                 }
             }}
-            className={`group grid grid-cols-[2rem_minmax(0,1fr)_2.5rem] sm:grid-cols-[2rem_minmax(0,2fr)_6rem_8rem_2.5rem] gap-4 items-center px-4 py-3 rounded-lg cursor-pointer border border-transparent transition-all hover:bg-telegram-hover
+            className={`group grid grid-cols-[2rem_minmax(0,1fr)_2.5rem] sm:grid-cols-[2rem_minmax(0,2fr)_6rem_8rem_2.5rem] gap-4 items-center px-4 py-3 rounded-lg cursor-pointer border border-transparent transition-all hover:bg-telegram-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-telegram-primary
                 ${selectedIds.includes(file.id) ? 'bg-telegram-primary/10 border-telegram-primary/20' : ''}
                 ${isDragOver ? 'ring-2 ring-telegram-primary bg-telegram-primary/20' : ''}
             `}

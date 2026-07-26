@@ -13,7 +13,7 @@ use crate::commands::{create_folder_inner, delete_folder_inner, rename_folder_in
 use crate::commands::preview::THUMBNAIL_EXTS;
 use crate::models::FolderMetadata;
 use crate::bandwidth::BandwidthManager;
-use crate::vpn_optimizer::NetworkConfig;
+use crate::transfer_policy::TransferPolicy;
 use crate::transfer_retry::{flood_wait_retry_attempts, should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
 use crate::transfer_log::record_transfer_log;
 use grammers_client::types::{Media, Peer};
@@ -605,7 +605,7 @@ async fn api_bulk_files(
     body: web::Json<BulkRequest>,
     tg_state: web::Data<Arc<TelegramState>>,
     api_state: web::Data<ApiState>,
-    net_config: web::Data<Arc<NetworkConfig>>,
+    net_config: web::Data<Arc<TransferPolicy>>,
     cache_dirs: web::Data<CacheDirs>,
 ) -> impl Responder {
     if let Err(e) = check_auth(&req, &api_state) {
@@ -1186,7 +1186,7 @@ async fn api_upload_file(
     tg_state: web::Data<Arc<TelegramState>>,
     api_state: web::Data<ApiState>,
     bw_manager: web::Data<Arc<BandwidthManager>>,
-    net_config: web::Data<Arc<NetworkConfig>>,
+    net_config: web::Data<Arc<TransferPolicy>>,
 ) -> impl Responder {
     if let Err(e) = check_auth(&req, &api_state) {
         return e;
@@ -1343,7 +1343,7 @@ async fn api_upload_file(
                 }
 
                 if should_retry_upload_error(&err, attempt, configured_attempts) {
-                    let delay = crate::vpn_optimizer::backoff_ms(attempt, base_ms, max_ms);
+                    let delay = crate::transfer_policy::backoff_ms(attempt, base_ms, max_ms);
                     log::info!("Retrying API upload in {}ms...", delay);
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                 } else {
@@ -1402,7 +1402,7 @@ async fn api_upload_file(
                 }
 
                 if attempt < configured_retries {
-                    let wait = crate::vpn_optimizer::backoff_ms(attempt, base_ms, max_ms);
+                    let wait = crate::transfer_policy::backoff_ms(attempt, base_ms, max_ms);
                     tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
                 } else {
                     break;

@@ -1,6 +1,6 @@
 [package]
 name = "telestash"
-version = "1.9.37"
+version = "1.0.0"
 description = "Windows 11 x64 Telegram-backed media and file drive."
 authors = ["rasyidmmz"]
 edition = "2021"
@@ -16,12 +16,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-os = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-grammers-client = { git = "https://github.com/Lonami/grammers", rev = "d07f96f", features = ["proxy"] }
+grammers-client = { git = "https://github.com/Lonami/grammers", rev = "d07f96f" }
 grammers-session = { git = "https://github.com/Lonami/grammers", rev = "d07f96f" }
 grammers-mtsender = { git = "https://github.com/Lonami/grammers", rev = "d07f96f", features = ["proxy"] }
 grammers-tl-types = { git = "https://github.com/Lonami/grammers", rev = "d07f96f" }
@@ -59,7 +59,7 @@ walkdir = "2"
 sqlite = { version = "0.37.0", features = ["bundled"] }
 mp4parse = "0.17"
 urlencoding = "2"
-reqwest = { version = "0.12", features = ["stream", "rustls-tls", "socks"] }
+reqwest = { version = "0.12", features = ["stream", "rustls-tls"] }
 sysinfo = "0.30"
 tokio-rustls = "0.26"
 rustls = "0.23"

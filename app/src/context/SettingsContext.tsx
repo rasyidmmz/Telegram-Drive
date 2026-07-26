@@ -13,27 +13,6 @@ export interface Settings {
     sidebarCollapsed: boolean;
     hideGroups: boolean;
 
-    // Legacy values are retained only while existing local settings are migrated.
-    // They are no longer rendered or sent to the backend.
-    vpnMode?: boolean;
-    timeoutMultiplier?: number;
-    retryAttempts?: number;
-    retryBaseBackoffSec?: number;
-    retryMaxBackoffSec?: number;
-    adaptivePolling?: boolean;
-    pollingMinSec?: number;
-    pollingMaxSec?: number;
-    preferredDC?: 'auto' | 'dc1' | 'dc2' | 'dc3' | 'dc4' | 'dc5';
-    dcFallbackAttempts?: number;
-    floodWaitRespect?: boolean;
-    peerCacheSize?: number;
-    bandwidthLimitUpKBs?: number;
-    bandwidthLimitDownKBs?: number;
-    chunkSizeKb?: number;
-    keepAliveIntervalSec?: number;
-    autoDetectVpn?: boolean;
-    archiveMaxBytes?: number;
-
     windowsAutostart: boolean;       // Launch on Windows Startup
 
     // ── Transcode cache ─────────────────────────────────────
@@ -76,10 +55,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
                 const store = await load('settings.json');
                 const saved = await store.get<Settings>('settings');
                 if (saved) {
-                    const savedSettings = { ...saved } as Partial<Settings> & { performanceMode?: unknown };
-                    delete savedSettings.performanceMode;
+                    const savedSettings = { ...saved } as Record<string, unknown>;
+                    for (const key of [
+                        'performanceMode', 'vpnMode', 'timeoutMultiplier', 'retryAttempts',
+                        'retryBaseBackoffSec', 'retryMaxBackoffSec', 'adaptivePolling',
+                        'pollingMinSec', 'pollingMaxSec', 'preferredDC', 'dcFallbackAttempts',
+                        'floodWaitRespect', 'peerCacheSize', 'bandwidthLimitUpKBs',
+                        'bandwidthLimitDownKBs', 'chunkSizeKb', 'keepAliveIntervalSec',
+                        'autoDetectVpn', 'archiveMaxBytes',
+                    ]) {
+                        delete savedSettings[key];
+                    }
                     // Merge with defaults so new keys are always present
-                    const merged = { ...defaultSettings, ...savedSettings };
+                    const merged = { ...defaultSettings, ...savedSettings } as Settings;
                     setSettings(merged);
                 }
             } catch {

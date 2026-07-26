@@ -40,7 +40,7 @@ fn init_com_on_worker_thread() {
 
 pub mod commands;
 pub mod bandwidth;
-pub mod vpn_optimizer;
+pub mod transfer_policy;
 pub mod transfer_retry;
 pub mod split_manifest;
 pub mod transfer_log;
@@ -48,9 +48,7 @@ pub mod failure_classifier;
 pub mod split_upload_resume;
 pub mod upload_checkpoint;
 pub mod streaming_buffer;
-pub mod parallel_download;
 pub mod session_health;
-pub mod parallel_upload;
 pub mod batch_cc_queue;
 
 use tauri::Manager;
@@ -120,7 +118,7 @@ pub fn restart_api_server(app: &tauri::AppHandle) {
     // Need TelegramState to share with the API server
     let tg_state = Arc::new(app.state::<TelegramState>().inner().clone());
     let bw_manager = app.state::<Arc<bandwidth::BandwidthManager>>().inner().clone();
-    let net_config = app.state::<Arc<vpn_optimizer::NetworkConfig>>().inner().clone();
+    let net_config = app.state::<Arc<transfer_policy::TransferPolicy>>().inner().clone();
     let db_pool = app.state::<db::DbConnection>().inner().clone();
     let api_port = settings.port;
     let key_hash = settings.key_hash.clone();
@@ -209,7 +207,7 @@ fn cmd_get_system_diagnostics(
 ) -> Result<String, String> {
     let mut lines: Vec<String> = Vec::new();
 
-    lines.push("=== Teledrive Diagnostics ===".into());
+    lines.push("=== TeleStash Diagnostics ===".into());
     lines.push(format!("Package: {}", env!("CARGO_PKG_NAME")));
     lines.push(format!("Version: {}", env!("CARGO_PKG_VERSION")));
 
@@ -288,7 +286,7 @@ pub fn run() {
             let transcode_arc = Arc::new(transcode_manager);
             app.manage(transcode_arc.clone());
             app.manage(fmp4_remux::Fmp4RemuxState::new());
-            let net_config = Arc::new(vpn_optimizer::NetworkConfig::new());
+            let net_config = Arc::new(transfer_policy::TransferPolicy::new());
             app.manage(net_config.clone());
             app.manage(commands::english_cc::EnglishCcManager::new());
             app.manage(Arc::new(session_health::SessionHealthManager::new()));

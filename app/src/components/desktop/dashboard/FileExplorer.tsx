@@ -38,6 +38,9 @@ interface FileExplorerProps {
     folders?: TelegramFolder[];
     cardScale: number;
     onCardScaleChange: (scale: number) => void;
+    searchTerm: string;
+    onClearSearch: () => void;
+    onRetry: () => void;
 }
 
 
@@ -76,7 +79,7 @@ function useGridColumns(containerRef: React.RefObject<HTMLDivElement | null>) {
 export function FileExplorer({
     files, loading, error, viewMode, selectedIds, activeFolderId,
     onFileClick, onDelete, onDownload, onPreview, onManualUpload, onFolderUpload, showFolderUpload, onToggleSelection, onDrop, onDragStart, onDragEnd, onShare, onRename, onFileMove,
-    folders, cardScale, onCardScaleChange
+    folders, cardScale, onCardScaleChange, searchTerm, onClearSearch, onRetry
 }: FileExplorerProps) {
     const [sortField, setSortField] = useState<SortField>('name');
     const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -255,13 +258,21 @@ export function FileExplorer({
     }
 
     if (error) {
-        return <div className="flex-1 p-6 flex justify-center items-center text-red-400">Error loading files</div>
+        return (
+            <div className="flex-1 p-6 flex flex-col justify-center items-center gap-3 text-center">
+                <p className="text-red-400 font-medium">{t('files.load_failed')}</p>
+                <p className="max-w-md text-sm text-telegram-subtext break-words">{error.message}</p>
+                <button onClick={onRetry} className="px-3 py-1.5 rounded-md bg-telegram-primary text-black text-sm font-medium hover:bg-telegram-primary/90 transition-colors">
+                    {t('files.retry')}
+                </button>
+            </div>
+        );
     }
 
     if (files.length === 0) {
         return (
             <div className="flex-1 p-6 overflow-auto">
-                <EmptyState onUpload={onManualUpload} />
+                <EmptyState onUpload={onManualUpload} searchTerm={searchTerm} onClearSearch={onClearSearch} />
             </div>
         );
     }

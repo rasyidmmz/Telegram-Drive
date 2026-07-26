@@ -30,8 +30,8 @@ pub struct FileMetadata {
 
 pub const SPLIT_MANIFEST_VERSION: u8 = 1;
 pub const SPLIT_MANIFEST_SUFFIX: &str = ".tdmanifest.json";
-pub const SPLIT_MANIFEST_UPLOAD_NAME: &str = "teledrive.tdmanifest.json";
-pub const SPLIT_PART_CAPTION_PREFIX: &str = "[teledrive-part]";
+pub const SPLIT_MANIFEST_UPLOAD_NAME: &str = "telestash.tdmanifest.json";
+pub const SPLIT_PART_CAPTION_PREFIX: &str = "[telestash-part]";
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SplitPart {
@@ -41,7 +41,7 @@ pub struct SplitPart {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SplitManifest {
-    pub teledrive_split: u8,
+    pub telestash_split: u8,
     pub filename: String,
     pub size: u64,
     pub mime_type: String,

@@ -51,7 +51,15 @@ export function RecentWatchBar({ entries, onPlay, onRefresh }: RecentWatchBarPro
                         <div
                             key={entry.id}
                             onClick={() => onPlay(entry)}
-                            className="group relative flex-shrink-0 w-60 p-3 rounded-lg bg-slate-900/90 hover:bg-slate-800/90 border border-gray-800/80 hover:border-cyan-500/50 cursor-pointer transition-all duration-200 select-none shadow-sm"
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Resume ${entry.file_name}`}
+                            onKeyDown={(event) => {
+                                if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return;
+                                event.preventDefault();
+                                event.currentTarget.click();
+                            }}
+                            className="group relative flex-shrink-0 w-60 p-3 rounded-lg bg-slate-900/90 hover:bg-slate-800/90 border border-gray-800/80 hover:border-cyan-500/50 cursor-pointer transition-all duration-200 select-none shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
                         >
                             <div className="flex items-start justify-between gap-2 mb-2">
                                 <div className="flex-1 min-w-0">
@@ -72,6 +80,7 @@ export function RecentWatchBar({ entries, onPlay, onRefresh }: RecentWatchBarPro
                                     onClick={(e) => handleRemove(e, entry.file_id)}
                                     className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-800 text-gray-500 hover:text-red-400 transition-all"
                                     title="Remove from history"
+                                    aria-label={`Remove ${entry.file_name} from history`}
                                 >
                                     <Trash2 className="w-3 h-3" />
                                 </button>

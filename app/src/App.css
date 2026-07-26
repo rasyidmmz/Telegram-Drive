@@ -252,14 +252,7 @@ body,
 }
 
 /* ── Default Performance Mode ──────────────────────────────── */
-/* Disables GPU-heavy effects for smoother Windows rendering.  */
-
-.performance-mode *,
-.performance-mode *::before,
-.performance-mode *::after {
-  transition: none !important;
-  animation: none !important;
-}
+/* Removes expensive compositing while retaining feedback and progress motion. */
 
 .performance-mode {
   /* Kill backdrop-filter completely */
@@ -293,9 +286,8 @@ body,
   filter: none !important;
 }
 
-/* Reduce paint cost */
-.performance-mode .animate-pulse,
-.performance-mode .animate-spin {
+/* Keep progress indicators usable; only decorative pulsing is suppressed. */
+.performance-mode .animate-pulse {
   animation: none !important;
 }
 

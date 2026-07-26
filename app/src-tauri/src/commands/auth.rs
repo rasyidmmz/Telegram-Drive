@@ -202,7 +202,7 @@ pub async fn cmd_reconnect_with_network_settings(
     // 2. Clear old client
     *state.client.lock().await = None;
 
-    // 3. Reinitialize with current network config (reads from NetworkConfig state)
+    // 3. Reinitialize with the fixed direct-transfer policy.
     let client = ensure_client_initialized(&app_handle, &state, api_id).await?;
 
     // 4. Verify the new connection works

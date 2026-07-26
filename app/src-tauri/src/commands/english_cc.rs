@@ -195,7 +195,7 @@ fn build_audio_extraction_args(
         "--af=lavfi=[aresample=16000,pan=mono|c0=c0]".to_string(),
     ];
     if let Some(token) = token {
-        args.push(format!("--http-header-fields=X-Teledrive-Stream-Token: {}", token));
+        args.push(format!("--http-header-fields=X-TeleStash-Stream-Token: {}", token));
     }
     // mpv applies per-file options to following inputs. Keep the authenticated
     // stream URL last so the header and extraction options apply to it.
@@ -592,7 +592,7 @@ mod tests {
 
         assert_eq!(args[0], "--no-video");
         assert_eq!(args[1], "--ao=pcm:file=temp.wav");
-        assert_eq!(args[3], "--http-header-fields=X-Teledrive-Stream-Token: mytoken");
+        assert_eq!(args[3], "--http-header-fields=X-TeleStash-Stream-Token: mytoken");
         assert_eq!(args.last().map(String::as_str), Some(url));
     }
 

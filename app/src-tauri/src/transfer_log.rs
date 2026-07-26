@@ -80,6 +80,6 @@ mod tests {
         super::record_transfer_log("upload", "request error: read 0 bytes", None);
 
         let logs = super::transfer_logs();
-        assert_eq!(logs[0].category, "network/proxy");
+        assert_eq!(logs[0].category, "network/transport");
     }
 }

@@ -97,23 +97,6 @@ export interface VideoTrackInfo {
     duration?: number;
 }
 
-/** Bandwidth cap in kilobits per second for each quality preset. 0 = unlimited. */
-export const QUALITY_THROTTLE_MAP: Record<StreamingQuality, number> = {
-    '360p': 500,
-    '480p': 1000,
-    '720p': 2500,
-    '1080p': 5000,
-    'original': 0,
-};
-
-/** Thresholds for adaptive quality switching (check from highest to lowest). */
-export const ADAPTIVE_THRESHOLDS: { minKbps: number; quality: StreamingQuality }[] = [
-    { minKbps: 4000, quality: '1080p' },
-    { minKbps: 2000, quality: '720p' },
-    { minKbps: 800, quality: '480p' },
-    { minKbps: 0, quality: '360p' },
-];
-
 export const QUALITY_LABELS: Record<StreamingQuality, string> = {
     '360p': '360p',
     '480p': '480p',

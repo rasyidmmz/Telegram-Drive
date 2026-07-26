@@ -1,10 +1,16 @@
-import { Upload } from 'lucide-react';
+import { SearchX, Upload } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface EmptyStateProps {
     onUpload: () => void;
+    searchTerm: string;
+    onClearSearch: () => void;
 }
 
-export function EmptyState({ onUpload }: EmptyStateProps) {
+export function EmptyState({ onUpload, searchTerm, onClearSearch }: EmptyStateProps) {
+    const isSearchEmpty = searchTerm.trim().length > 0;
+    const { t } = useTranslation();
+
     return (
         <div className="flex flex-col items-center justify-center py-20 px-8 text-center">
             {/* Custom SVG Illustration */}
@@ -49,22 +55,31 @@ export function EmptyState({ onUpload }: EmptyStateProps) {
             </svg>
 
             <h3 className="text-xl font-semibold text-telegram-text mb-2">
-                This folder is empty
+                {isSearchEmpty ? t('files.search_empty_title') : t('files.folder_empty_title')}
             </h3>
             <p className="text-telegram-subtext text-sm mb-6 max-w-xs">
-                Drag and drop files here, or click the button below to upload from your computer.
+                {isSearchEmpty
+                    ? t('files.search_empty_description', { query: searchTerm })
+                    : t('files.folder_empty_description')}
             </p>
 
-            <button
-                onClick={onUpload}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-telegram-primary text-black font-medium rounded-xl hover:bg-telegram-primary/90 transition-all hover:scale-105 shadow-lg shadow-telegram-primary/20"
-            >
-                <Upload className="w-5 h-5" />
-                Upload Files
-            </button>
+            {isSearchEmpty ? (
+                <button onClick={onClearSearch} className="inline-flex items-center gap-2 px-4 py-2.5 bg-telegram-hover text-telegram-text font-medium rounded-lg hover:bg-telegram-border transition-colors">
+                    <SearchX className="w-4 h-4" />
+                    {t('files.clear_search')}
+                </button>
+            ) : (
+                <button
+                    onClick={onUpload}
+                    className="inline-flex items-center gap-2 px-6 py-3 bg-telegram-primary text-black font-medium rounded-xl hover:bg-telegram-primary/90 transition-all hover:scale-105 shadow-lg shadow-telegram-primary/20"
+                >
+                    <Upload className="w-5 h-5" />
+                    {t('files.upload_files')}
+                </button>
+            )}
 
             <p className="text-xs text-telegram-subtext/50 mt-6">
-                Tip: Use <kbd className="px-1.5 py-0.5 bg-telegram-hover rounded text-telegram-subtext">Cmd + F</kbd> to search
+                {t('files.search_tip_prefix')} <kbd className="px-1.5 py-0.5 bg-telegram-hover rounded text-telegram-subtext">Ctrl + F</kbd> {t('files.search_tip_suffix')}
             </p>
         </div>
     );

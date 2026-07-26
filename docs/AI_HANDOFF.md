@@ -1,46 +1,29 @@
-# AI Agent Handoff
+# TeleStash AI Handoff
 
 ## Product Boundary
 
-Teledrive is a personal Telegram drive for Windows 11 64-bit. It is a fork
-with its own Teledrive identity, Windows installer, updater, logs, and MPV
-streaming integration. It is not a cross-platform product.
+TeleStash is a Windows 11 64-bit Tauri/React desktop application. The frontend
+is in `app/src`; the backend is in `app/src-tauri/src`. Do not add non-Windows
+targets, packages, documentation, or CI jobs.
 
-The frontend is React/TypeScript in `app/src`. The desktop backend is Rust and
-Tauri in `app/src-tauri/src`. GitHub Actions builds the Windows NSIS installer.
+## Transfer Contract
 
-## Transfer Behavior
-
-Normal transfers use direct Telegram connections without an application-side
-rate cap. Telegram protocol limits still apply: `FLOOD_WAIT` must be honoured,
-and retry policy belongs in the shared retry/classifier layer.
-
-The safe single-file Telegram cutoff used by Teledrive is `2_000_000_000`
-bytes. A larger local or remote URL upload is stored as parts with a manifest.
-This applies to MP4, MKV, and all other file types. `FILE_PARTS_INVALID` is not
-a transient network error and must not enter the normal retry loop.
-
-Split-file changes affect listing, manifest validation, streaming, downloads,
-move/delete, API routes, and retry cleanup. Preserve manifest integrity before
-claiming that a split file is playable in MPV.
-
-## Current Operating Decisions
-
-- Windows-only: no mobile or non-Windows platform paths.
-- Direct network connections: no proxy, VPN, local SOCKS bridge, or optimizer
-  settings.
-- No application-side upload/download bandwidth throttle. This does not mean
-  ignoring Telegram flood waits or transient connection failures.
-- User-facing errors are recorded in the in-app logs. Preserve diagnostics such
-  as transfer id, attempt, error kind, retry decision, and part index.
-- Keep the fork name `Teledrive`, including installer and autostart identity.
+- Use direct Telegram connections only. Do not add proxy, VPN, SOCKS, network
+  optimizer, or application bandwidth-throttle features.
+- Files over `2_000_000_000` bytes use split upload for every file type and
+  source, including local files and URLs.
+- Preserve split manifest validation across listing, streaming, download,
+  move, delete, and retry paths.
+- `FILE_PARTS_INVALID` is permanent for the current request. Respect Telegram
+  `FLOOD_WAIT` values through shared retry and classifier modules.
+- Transfer logs must retain transfer id, attempt, part index, error class, and
+  retry decision.
 
 ## Working Method
 
-Inspect the current branch, status, source, versions, and workflow before
-assuming prior work is deployed. Preserve uncommitted work that you did not
-create. Fix the shared root cause rather than adding per-screen workarounds.
+Read `AGENTS.md`, inspect the branch and working tree, then change the shared
+root cause. Preserve unrelated work. Do not claim a build or release succeeded
+without the relevant evidence.
 
-Use `AGENTS.md` for mandatory boundaries and `RELEASE_RUNBOOK.md` for release
-operations. A status note, prior plan, or test artifact is not proof that a
-feature was committed, pushed, released, or validated at runtime.
+Commit, push, tag creation, workflow triggering, release publication, and
+secret changes each require direct user approval in the current task.

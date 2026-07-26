@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, Copy, Terminal, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { clearErrorLogs, ErrorLogEntry, useErrorLogs } from '../../../errorLogs';
+import { useModalDialog } from '../../../hooks/useModalDialog';
 
 interface LogsModalProps {
     isOpen: boolean;
@@ -11,6 +12,8 @@ interface LogsModalProps {
 }
 
 export function LogsModal({ isOpen, onClose }: LogsModalProps) {
+    const closeButtonRef = useRef<HTMLButtonElement>(null);
+    const dialogRef = useModalDialog(isOpen, onClose, closeButtonRef);
     const frontendLogs = useErrorLogs();
     const [backendLogs, setBackendLogs] = useState<ErrorLogEntry[]>([]);
     const logs = useMemo(
@@ -63,11 +66,16 @@ export function LogsModal({ isOpen, onClose }: LogsModalProps) {
                     onClick={onClose}
                 >
                     <motion.div
+                        ref={dialogRef}
                         initial={{ scale: 0.95, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.95, opacity: 0 }}
                         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                         onClick={e => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="logs-modal-title"
+                        tabIndex={-1}
                         className="w-full max-w-4xl max-h-[85vh] bg-[#090d16] border border-[#1e293b] rounded-xl shadow-2xl overflow-hidden flex flex-col font-mono"
                     >
                         {/* Terminal Header */}
@@ -80,16 +88,18 @@ export function LogsModal({ isOpen, onClose }: LogsModalProps) {
                                 </div>
                                 <div className="flex items-center gap-2 text-[#94a3b8]">
                                     <Terminal className="w-4 h-4 text-emerald-400" />
-                                    <h2 className="text-xs font-medium tracking-wide text-[#f8fafc]">System Diagnostic Console</h2>
+                                    <h2 id="logs-modal-title" className="text-xs font-medium tracking-wide text-[#f8fafc]">System Diagnostic Console</h2>
                                 </div>
                                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#1e293b] text-[#94a3b8] font-normal">
                                     {logs.length} line{logs.length === 1 ? '' : 's'}
                                 </span>
                             </div>
                             <button
+                                ref={closeButtonRef}
                                 onClick={onClose}
                                 className="p-1.5 rounded-lg text-[#94a3b8] hover:text-[#f8fafc] hover:bg-[#1e293b] transition"
                                 title="Close"
+                                aria-label="Close logs"
                             >
                                 <X className="w-4 h-4" />
                             </button>

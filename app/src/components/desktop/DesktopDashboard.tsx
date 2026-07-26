@@ -760,6 +760,9 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     onFileMove={handleFileMove}
                     cardScale={cardScale}
                     onCardScaleChange={setCardScale}
+                    searchTerm={searchTerm}
+                    onClearSearch={() => setSearchTerm('')}
+                    onRetry={() => queryClient.invalidateQueries({ queryKey: ['files', activeFolderId] })}
                 />
             </main>
 
@@ -795,6 +798,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
             <UploadQueue
                 items={uploadQueue}
+                bottomOffsetClass={downloadQueue.length > 0 ? 'bottom-[20rem]' : undefined}
                 onClearFinished={() => setUploadQueue(q => q.filter(i => i.status !== 'success' && i.status !== 'error' && i.status !== 'cancelled'))}
                 onCancelAll={cancelUploads}
                 onCancelItem={cancelUploadItem}

@@ -93,7 +93,7 @@ fn render_password_form(file_name: &str, token: &str, error: Option<&str>) -> Ht
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Password Protected File - Teledrive</title>
+    <title>Password Protected File - TeleStash</title>
     <style>
         body {{
             background-color: #182533;

@@ -79,7 +79,7 @@ function verifyConfiguredSigningKey() {
     throw new Error('plugins.updater.pubkey is not configured');
   }
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'teledrive-updater-key-'));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'telestash-updater-key-'));
   const probePath = path.join(tempDir, 'probe.txt');
   const signaturePath = `${probePath}.sig`;
 
@@ -98,7 +98,7 @@ function verifyConfiguredSigningKey() {
   }
 
   try {
-    fs.writeFileSync(probePath, 'teledrive updater signing key probe');
+    fs.writeFileSync(probePath, 'telestash updater signing key probe');
     execFileSync(
       process.execPath,
       [

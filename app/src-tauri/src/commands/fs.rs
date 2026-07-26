@@ -10,7 +10,7 @@ use crate::models::{
 };
 use crate::bandwidth::BandwidthManager;
 use crate::commands::utils::{resolve_peer, map_error};
-use crate::vpn_optimizer::{NetworkConfig, backoff_ms};
+use crate::transfer_policy::{TransferPolicy, backoff_ms};
 use crate::transfer_retry::{flood_wait_retry_attempts, should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
 use crate::split_manifest::{
     is_split_manifest_candidate, validate_split_manifest, MAX_SPLIT_MANIFEST_BYTES,
@@ -102,7 +102,7 @@ pub async fn create_folder_inner(
         broadcast: true,
         megagroup: false,
         title: format!("{} [TD]", name),
-        about: "Teledrive Storage Folder\n[telegram-drive-folder]".to_string(),
+        about: "TeleStash Storage Folder\n[telestash-folder]".to_string(),
         geo_point: None,
         address: None,
         for_import: false,
@@ -373,7 +373,7 @@ fn split_temp_path(file_name: &str, suffix: &str) -> PathBuf {
         .map(|d| d.as_millis())
         .unwrap_or_default();
     std::env::temp_dir().join(format!(
-        "teledrive-{}-{}-{}",
+        "telestash-{}-{}-{}",
         std::process::id(),
         unique,
         suffix.replace("{name}", &safe_name)
@@ -570,7 +570,7 @@ async fn upload_path_and_send(
     upload_name: String,
     caption: String,
     limit: u64,
-    net_config: &NetworkConfig,
+    net_config: &TransferPolicy,
     tid: &str,
     state: &TelegramState,
     app_handle: &tauri::AppHandle,
@@ -826,7 +826,7 @@ async fn move_split_file(
     manifest: SplitManifest,
     app_handle: &tauri::AppHandle,
     state: &TelegramState,
-    net_config: &NetworkConfig,
+    net_config: &TransferPolicy,
 ) -> Result<(), String> {
     validate_split_parts_present(client, source_peer, &manifest, "Split move").await?;
 
@@ -934,7 +934,7 @@ async fn upload_large_file_split(
     app_handle: &tauri::AppHandle,
     state: &TelegramState,
     client: &grammers_client::Client,
-    net_config: &NetworkConfig,
+    net_config: &TransferPolicy,
     limit: u64,
 ) -> Result<String, String> {
     let peer = resolve_peer(client, folder_id, &state.peer_cache).await?;
@@ -1089,7 +1089,7 @@ async fn upload_large_file_split(
         .and_then(|ext| ext.to_str())
         .map(|s| s.to_ascii_lowercase());
     let manifest = SplitManifest {
-        teledrive_split: SPLIT_MANIFEST_VERSION,
+        telestash_split: SPLIT_MANIFEST_VERSION,
         filename: file_name.clone(),
         size,
         mime_type: video_mime_from_name(&file_name),
@@ -1183,7 +1183,7 @@ async fn download_split_file(
     app_handle: &tauri::AppHandle,
     state: &TelegramState,
     bw_state: &BandwidthManager,
-    net_config: &NetworkConfig,
+    net_config: &TransferPolicy,
 ) -> Result<String, String> {
     validate_split_parts_present(client, peer, &manifest, "Split download").await?;
     bw_state.try_reserve_down(manifest.size)?;
@@ -1366,7 +1366,7 @@ pub async fn cmd_upload_file(
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
     bw_state: State<'_, Arc<BandwidthManager>>,
-    net_config: State<'_, std::sync::Arc<NetworkConfig>>,
+    net_config: State<'_, std::sync::Arc<TransferPolicy>>,
 ) -> Result<String, String> {
     cmd_upload_file_inner(
         path,
@@ -1386,7 +1386,7 @@ async fn cmd_upload_file_inner(
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
     bw_state: State<'_, Arc<BandwidthManager>>,
-    net_config: State<'_, std::sync::Arc<NetworkConfig>>,
+    net_config: State<'_, std::sync::Arc<TransferPolicy>>,
 ) -> Result<String, String> {
 
     let size = tokio::fs::metadata(&path).await.map_err(|e| e.to_string())?.len();
@@ -1668,7 +1668,7 @@ async fn cmd_upload_file_inner(
 
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
-    // VPN-aware retry logic for send_message
+    // Shared retry logic for send_message.
     let configured_retries = net_config.retry_attempts();
     let base_ms = net_config.retry_base_backoff_ms();
     let max_ms = net_config.retry_max_backoff_ms();
@@ -1734,7 +1734,7 @@ pub async fn initiate_upload(
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
     bw_state: State<'_, Arc<BandwidthManager>>,
-    net_config: State<'_, std::sync::Arc<NetworkConfig>>,
+    net_config: State<'_, std::sync::Arc<TransferPolicy>>,
 ) -> Result<String, String> {
     cmd_upload_file(
         path,
@@ -1906,7 +1906,7 @@ pub async fn cmd_download_file(
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
     bw_state: State<'_, Arc<BandwidthManager>>,
-    net_config: State<'_, std::sync::Arc<NetworkConfig>>,
+    net_config: State<'_, std::sync::Arc<TransferPolicy>>,
 ) -> Result<String, String> {
     let tid = req.transfer_id.unwrap_or_default();
     let save_path = req.save_path;
@@ -2096,7 +2096,7 @@ pub async fn cmd_move_files(
     target_folder_id: Option<i64>,
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
-    net_config: State<'_, std::sync::Arc<NetworkConfig>>,
+    net_config: State<'_, std::sync::Arc<TransferPolicy>>,
 ) -> Result<bool, String> {
     if source_folder_id == target_folder_id { return Ok(true); }
     let client_opt = { state.client.lock().await.clone() };
@@ -2349,7 +2349,7 @@ pub async fn cmd_scan_folders(
                     }).await {
                         Ok(tl::enums::messages::ChatFull::Full(f)) => {
                             if let tl::enums::ChatFull::Full(cf) = f.full_chat {
-                                 if cf.about.contains("[telegram-drive-folder]") {
+                                 if cf.about.contains("[telestash-folder]") {
                                      log::info!(" -> MATCH via About: {}", name);
                                      let username = c.raw.username.clone();
                                      let is_public = username.is_some();
@@ -2760,7 +2760,7 @@ pub async fn cmd_upload_from_url(
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
     bw_state: State<'_, Arc<BandwidthManager>>,
-    net_config: State<'_, std::sync::Arc<NetworkConfig>>,
+    net_config: State<'_, std::sync::Arc<TransferPolicy>>,
 ) -> Result<String, String> {
     let mut client_builder = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(30))
