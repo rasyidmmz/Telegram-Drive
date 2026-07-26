@@ -140,21 +140,25 @@ jobs:
           const fs = require('fs');
           const path = require('path');
           const key = (process.env.KEY || '').trim();
+          const configPath = path.join('app', 'src-tauri', 'tauri.conf.json');
+          const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+
           if (key) {
-            console.log('TAURI_SIGNING_PRIVATE_KEY secret detected.');
+            console.log('TAURI_SIGNING_PRIVATE_KEY secret detected. Enabling createUpdaterArtifacts.');
             const b64 = key.startsWith('untrusted comment:')
               ? Buffer.from(key).toString('base64')
               : key;
             fs.appendFileSync(process.env.GITHUB_ENV, `TAURI_SIGNING_PRIVATE_KEY=${b64}\n`);
+            if (config.bundle) {
+              config.bundle.createUpdaterArtifacts = true;
+            }
           } else {
-            console.log('TAURI_SIGNING_PRIVATE_KEY secret not found. Disabling createUpdaterArtifacts for unsigned build.');
-            const configPath = path.join('app', 'src-tauri', 'tauri.conf.json');
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            console.log('TAURI_SIGNING_PRIVATE_KEY secret not found. Keeping createUpdaterArtifacts false.');
             if (config.bundle) {
               config.bundle.createUpdaterArtifacts = false;
             }
-            fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
           }
+          fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
       - name: Verify updater signing key
         if: env.TAURI_SIGNING_PRIVATE_KEY != ''
