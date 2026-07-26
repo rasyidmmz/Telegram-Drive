@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   validate-release:
@@ -29,11 +30,46 @@ jobs:
 
       - name: Validate frontend
         working-directory: app
-        run: npx tsc --noEmit --pretty false
+        shell: pwsh
+        run: |
+          $logPath = Join-Path $env:RUNNER_TEMP 'frontend-validation.log'
+          & npx tsc --noEmit --pretty false 2>&1 | Tee-Object -FilePath $logPath
+          if ($LASTEXITCODE -ne 0) {
+            $details = (Get-Content $logPath | Select-Object -Last 20) -join '%0A'
+            Write-Output "::error title=Frontend validation::$details"
+            exit $LASTEXITCODE
+          }
 
       - name: Validate updater signing configuration
         working-directory: app
-        run: npm run test:updater-signing-key
+        shell: pwsh
+        run: |
+          $logPath = Join-Path $env:RUNNER_TEMP 'updater-signing-validation.log'
+          & npm run test:updater-signing-key 2>&1 | Tee-Object -FilePath $logPath
+          if ($LASTEXITCODE -ne 0) {
+            $details = (Get-Content $logPath | Select-Object -Last 20) -join '%0A'
+            Write-Output "::error title=Updater signing validation::$details"
+            exit $LASTEXITCODE
+          }
+
+      - name: Record validation context
+        shell: pwsh
+        run: |
+          $context = [ordered]@{
+            ref = $env:GITHUB_REF
+            sha = $env:GITHUB_SHA
+            runner_os = $env:RUNNER_OS
+            node = (& node --version)
+            npm = (& npm --version)
+            rustc = (& rustc --version)
+            cargo = (& cargo --version)
+            tauri_cli = (& npm exec tauri -- --version)
+          }
+          $context | ConvertTo-Json | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'release-context.json')
+          "## Release validation context" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "```json" | Add-Content $env:GITHUB_STEP_SUMMARY
+          ($context | ConvertTo-Json) | Add-Content $env:GITHUB_STEP_SUMMARY
+          "```" | Add-Content $env:GITHUB_STEP_SUMMARY
 
       - name: Provide MPV resource placeholder for Rust validation
         shell: pwsh
@@ -47,10 +83,10 @@ jobs:
         working-directory: app/src-tauri
         shell: pwsh
         run: |
-          $output = & cargo check --locked --message-format short 2>&1
-          $output | ForEach-Object { Write-Host $_ }
+          $logPath = Join-Path $env:RUNNER_TEMP 'rust-validation.log'
+          & cargo check --locked --message-format short 2>&1 | Tee-Object -FilePath $logPath
           if ($LASTEXITCODE -ne 0) {
-            $details = ($output | Select-Object -Last 20) -join '%0A'
+            $details = (Get-Content $logPath | Select-Object -Last 20) -join '%0A'
             Write-Output "::error title=Rust validation::$details"
             exit $LASTEXITCODE
           }
@@ -92,6 +128,18 @@ jobs:
             $body.Add($lines[$index])
           }
           if (-not ($body -join "`n").Trim()) { throw "CHANGELOG.md entry for $version is empty" }
+
+      - name: Upload validation diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/frontend-validation.log
+            ${{ runner.temp }}/updater-signing-validation.log
+            ${{ runner.temp }}/rust-validation.log
+            ${{ runner.temp }}/release-context.json
+          if-no-files-found: warn
 
   build-tauri:
     needs: validate-release
@@ -161,11 +209,19 @@ jobs:
 
       - name: Build Windows installer
         working-directory: app
+        shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build -- --bundles nsis
+        run: |
+          $logPath = Join-Path $env:RUNNER_TEMP 'tauri-build.log'
+          & npm run tauri build -- --bundles nsis 2>&1 | Tee-Object -FilePath $logPath
+          if ($LASTEXITCODE -ne 0) {
+            $details = (Get-Content $logPath | Select-Object -Last 30) -join '%0A'
+            Write-Output "::error title=Tauri Windows build::$details"
+            exit $LASTEXITCODE
+          }
 
       - name: Collect required release assets
         shell: pwsh
@@ -195,12 +251,35 @@ jobs:
           }
           $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path release-assets/latest.json -NoNewline
 
+          $assetReport = Get-ChildItem release-assets -File | ForEach-Object {
+            [ordered]@{
+              name = $_.Name
+              bytes = $_.Length
+              sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+            }
+          }
+          $assetReport | ConvertTo-Json | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'release-assets.json')
+          "## Release assets" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "```json" | Add-Content $env:GITHUB_STEP_SUMMARY
+          ($assetReport | ConvertTo-Json) | Add-Content $env:GITHUB_STEP_SUMMARY
+          "```" | Add-Content $env:GITHUB_STEP_SUMMARY
+
       - name: Upload release assets
         uses: actions/upload-artifact@v4
         with:
           name: release-assets
           path: release-assets/*
           if-no-files-found: error
+
+      - name: Upload build diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-diagnostics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/tauri-build.log
+            ${{ runner.temp }}/release-assets.json
+          if-no-files-found: warn
 
   publish-release:
     needs: build-tauri

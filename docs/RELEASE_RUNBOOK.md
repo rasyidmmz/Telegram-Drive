@@ -27,3 +27,16 @@
 The workflow fails before a release if the signing key is absent or does not
 match the configured updater public key. Never add key material to source or
 logs.
+
+## Diagnostics
+
+Each release records safe build context and release-asset hashes in the GitHub
+Actions job summary. On a frontend, signing, Rust, or Tauri build failure, the
+workflow also uploads a downloadable diagnostics artifact containing the full
+captured command logs. The failing step adds its final log lines as a GitHub
+error annotation for immediate triage.
+
+For temporary platform-level step tracing, set the repository Actions secret
+`ACTIONS_STEP_DEBUG` to `true`, rerun the failed tag workflow, then remove the
+secret. Do not enable it for routine releases and never print signing secrets
+or a complete environment dump.
