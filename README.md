@@ -65,8 +65,6 @@ Unlike generic file management scripts or web wrappers, TeleStash is built as a 
 
 ## 🏗️ System Architecture
 
-![TeleStash Architecture Diagram](docs/assets/telestash_architecture.jpg)
-
 ```mermaid
 flowchart TB
     subgraph UI_TIER["User Interfaces Layer"]
