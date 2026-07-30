@@ -18,7 +18,7 @@
 
 Built with **Tauri v2, Rust, React, and an MPV sidecar**, TeleStash supports personal **HEVC/H.265, 10-bit HDR, MKV, and MP4** libraries through a direct Telegram connection, local Whisper English CC generation, persisted upload state, and detailed transfer diagnostics.
 
-[**Download Latest Release**](https://github.com/rasyidmmz/Telestash/releases/latest) · [**Why TeleStash**](#-why-telestash) · [**System Architecture**](#-system-architecture) · [**Build Instructions**](#-build-from-source)
+[**Download Latest Release**](https://github.com/rasyidmmz/Telestash/releases/latest) · [**Why TeleStash**](#-why-telestash) · [**System Architecture**](#-system-architecture) · [**Brand Identity**](#-brand-identity--visual-system) · [**Build Instructions**](#-build-from-source)
 
 </div>
 
@@ -67,26 +67,15 @@ Unlike a browser-only media workflow, TeleStash is a native 64-bit Rust/Tauri ap
 
 ## 🏗️ System Architecture
 
-The data path is intentionally short: the Windows application talks directly to Telegram, MPV receives a local authenticated stream, and large files retain validation metadata beside their Telegram parts.
+The data path is intentionally short and deterministic: the Windows application connects directly to Telegram MTProto servers, MPV receives an authenticated local HTTP stream, and large split media retains validation metadata alongside its Telegram message parts.
 
-```mermaid
-flowchart TB
-    User[Windows 11 user] --> App[TeleStash desktop app]
+![TeleStash System Architecture](docs/assets/telestash_architecture.png)
 
-    subgraph Desktop[TeleStash on Windows]
-        App --> Core[Rust and Tauri core]
-        Core --> Transfer[Transfer integrity\nresume state and diagnostics]
-        Core --> Stream[Local authenticated stream]
-        Stream --> MPV[MPV playback\nMP4 MKV HEVC/H.265]
-        Core --> Captions[Whisper English CC\nlocal SRT cache]
-    end
-
-    Transfer --> Telegram[Direct Telegram connection]
-    Telegram --> Library[Saved Messages and private channels]
-    Transfer --> Split[Files over 2_000_000_000 bytes\nvalidated parts and manifest]
-    Split --> Library
-    Captions --> Library
-```
+### Core Architectural Layers:
+1. **Tauri v2 + Rust Core**: Manages high-performance native process execution, IPC command routing, system tray integration, and SQLite checkpoint state.
+2. **Direct MTProto Engine**: Multithreaded Grammers client communicating directly with Telegram cloud infrastructure without intermediate proxy servers.
+3. **Bundled MPV Sidecar Engine**: Zero-copy 4K/10-bit HDR video rendering, multi-channel surround audio, embedded subtitle selection, and natural episode playlist auto-play.
+4. **Local Whisper AI Engine**: System-friendly `whisper-cli` background runner generating `.en.srt` subtitles with `BELOW_NORMAL_PRIORITY_CLASS` and 2-thread CPU cap.
 
 ---
 
@@ -109,14 +98,29 @@ flowchart TB
 
 ## 🎨 Brand Identity & Visual System
 
-![TeleStash logo](app/public/telestash-logo.png)
+![TeleStash Brand Identity System](docs/assets/telestash_brand_identity_kit.png)
 
-### Core Metaphor: The Vault & The Stream
-TeleStash combines **the vault** (a personal Telegram-backed library) with **the stream** (MPV playback from the local authenticated stream). The film reel and vault mark is the primary logo used by the desktop interface, Windows tray, and Windows installer assets.
+### Core Brand Metaphor: *The Vault & The Stream*
+TeleStash fuses **The Vault** (a personal, immutable Telegram-backed library) with **The Stream** (instant local MPV playback from an in-memory ring buffer). The visual identity balances high-precision developer tooling with a dark, cinematic media experience.
 
-* **Electric Cyan (`#06B6D4`)**: High-speed data transmission & MTProto multi-worker streams.
-* **Midnight Blue (`#0F172A`)**: Dark-mode personal cinema viewing environment.
-* **Slate Charcoal (`#1E293B`)**: Minimalist, distraction-free desktop container UI.
+### 🎨 Color System Palette
+
+| Color Name | Hex Code | HSL Value | Primary Application |
+| :--- | :--- | :--- | :--- |
+| **Electric Cyan** | `#06B6D4` | `hsl(189, 94%, 43%)` | Primary brand accent, MTProto active stream indicators, system focus states |
+| **Midnight Slate** | `#0F172A` | `hsl(222, 47%, 11%)` | Cinema viewport canvas, dark-mode root desktop background |
+| **Deep Charcoal** | `#1E293B` | `hsl(215, 25%, 27%)` | Card containers, sidebar navigation background, dialog panels |
+| **Vivid Emerald** | `#10B981` | `hsl(160, 84%, 39%)` | Active connection badge, SQLite upload checkpoints, successful transfers |
+| **Crimson Rose** | `#E11D48` | `hsl(347, 77%, 50%)` | Codec engine tags, error classification, emergency cancellation controls |
+
+### 🔤 Typography System
+* **Display & Interface**: `Geist` / `Inter` — Geometric sans-serif engineered for high legibility across Windows desktop displays, file cards, and player controls.
+* **Monospace & Telemetry**: `Geist Mono` / `JetBrains Mono` — Monospaced typography for file paths, transfer rates, message IDs, and system diagnostic logs.
+
+### 📐 Design Principles
+1. **Zero-Slop Transparency**: Direct MTProto connection without hidden proxy hops or application-level data collection.
+2. **Distraction-Free Cinema**: Dark UI surfaces step back so media content and playback controls take center stage.
+3. **Deterministic Performance**: In-memory ring buffer, bounded prefetching, and predictable CPU/RAM allocation.
 
 ---
 
