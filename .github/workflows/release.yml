@@ -67,9 +67,9 @@ jobs:
           }
           $context | ConvertTo-Json | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'release-context.json')
           "## Release validation context" | Add-Content $env:GITHUB_STEP_SUMMARY
-          "```json" | Add-Content $env:GITHUB_STEP_SUMMARY
+          '```json' | Add-Content $env:GITHUB_STEP_SUMMARY
           ($context | ConvertTo-Json) | Add-Content $env:GITHUB_STEP_SUMMARY
-          "```" | Add-Content $env:GITHUB_STEP_SUMMARY
+          '```' | Add-Content $env:GITHUB_STEP_SUMMARY
 
       - name: Provide MPV resource placeholder for Rust validation
         shell: pwsh
@@ -260,9 +260,9 @@ jobs:
           }
           $assetReport | ConvertTo-Json | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'release-assets.json')
           "## Release assets" | Add-Content $env:GITHUB_STEP_SUMMARY
-          "```json" | Add-Content $env:GITHUB_STEP_SUMMARY
+          '```json' | Add-Content $env:GITHUB_STEP_SUMMARY
           ($assetReport | ConvertTo-Json) | Add-Content $env:GITHUB_STEP_SUMMARY
-          "```" | Add-Content $env:GITHUB_STEP_SUMMARY
+          '```' | Add-Content $env:GITHUB_STEP_SUMMARY
 
       - name: Upload release assets
         uses: actions/upload-artifact@v4
