@@ -21,9 +21,9 @@ pub struct FileMetadata {
     pub id: i64,
     pub folder_id: Option<i64>,
     pub name: String,
-    pub size: u64, // Updated to u64
+    pub size: u64,
     pub mime_type: Option<String>,
-    pub file_ext: Option<String>, // Added field
+    pub file_ext: Option<String>,
     pub created_at: String, 
     pub icon_type: String, 
 }
@@ -32,6 +32,19 @@ pub const SPLIT_MANIFEST_VERSION: u8 = 1;
 pub const SPLIT_MANIFEST_SUFFIX: &str = ".tdmanifest.json";
 pub const SPLIT_MANIFEST_UPLOAD_NAME: &str = "telestash.tdmanifest.json";
 pub const SPLIT_PART_CAPTION_PREFIX: &str = "[telestash-part]";
+pub const LEGACY_PART_PREFIX_1: &str = "[teledrive-part]";
+pub const LEGACY_PART_PREFIX_2: &str = "[telegram-drive-part]";
+pub const LEGACY_PART_PREFIX_3: &str = "[tdrive-part]";
+pub const LEGACY_PART_PREFIX_4: &str = "[tg-part]";
+
+pub fn is_split_part_caption(caption: &str) -> bool {
+    let c = caption.trim();
+    c.starts_with(SPLIT_PART_CAPTION_PREFIX)
+        || c.starts_with(LEGACY_PART_PREFIX_1)
+        || c.starts_with(LEGACY_PART_PREFIX_2)
+        || c.starts_with(LEGACY_PART_PREFIX_3)
+        || c.starts_with(LEGACY_PART_PREFIX_4)
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SplitPart {
@@ -41,6 +54,7 @@ pub struct SplitPart {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SplitManifest {
+    #[serde(alias = "teledrive_split", alias = "telegram_drive_split", alias = "split", alias = "version")]
     pub telestash_split: u8,
     pub filename: String,
     pub size: u64,

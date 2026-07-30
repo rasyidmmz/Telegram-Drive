@@ -427,22 +427,22 @@ async fn api_list_files(
         let include_all = fields_list.is_none();
         let fields = fields_list.as_ref();
 
-        if include_all || fields.unwrap().contains(&"id".to_string()) {
+        if include_all || fields.map_or(false, |f| f.contains(&"id".to_string())) {
             map.insert("id".to_string(), serde_json::json!(file.id));
         }
-        if include_all || fields.unwrap().contains(&"folder_id".to_string()) {
+        if include_all || fields.map_or(false, |f| f.contains(&"folder_id".to_string())) {
             map.insert("folder_id".to_string(), serde_json::json!(file.folder_id));
         }
-        if include_all || fields.unwrap().contains(&"name".to_string()) {
+        if include_all || fields.map_or(false, |f| f.contains(&"name".to_string())) {
             map.insert("name".to_string(), serde_json::json!(file.name));
         }
-        if include_all || fields.unwrap().contains(&"size".to_string()) {
+        if include_all || fields.map_or(false, |f| f.contains(&"size".to_string())) {
             map.insert("size".to_string(), serde_json::json!(file.size));
         }
-        if include_all || fields.unwrap().contains(&"mime_type".to_string()) {
+        if include_all || fields.map_or(false, |f| f.contains(&"mime_type".to_string())) {
             map.insert("mime_type".to_string(), serde_json::json!(file.mime_type));
         }
-        if include_all || fields.unwrap().contains(&"created_at".to_string()) {
+        if include_all || fields.map_or(false, |f| f.contains(&"created_at".to_string())) {
             map.insert("created_at".to_string(), serde_json::json!(file.created_at));
         }
 

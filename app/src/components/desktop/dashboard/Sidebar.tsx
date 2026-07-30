@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { HardDrive, Folder, Plus, RefreshCw, LogOut, ChevronLeft, ChevronRight, Settings2, Trash2, Check, X, Eye, EyeOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { version as appVersion } from '../../../../package.json';
 import { SidebarItem } from './SidebarItem';
 import { BandwidthWidget } from './BandwidthWidget';
 import { TelegramFolder, BandwidthStats, FolderGroup } from '../../../types';
@@ -253,9 +254,14 @@ export function Sidebar({
                     <img src="/telestash-logo.png" className="w-7 h-7 drop-shadow-md" alt="TeleStash" />
                     {!settings.sidebarCollapsed && (
                         <div className="flex flex-col">
-                            <span className="font-bold text-base text-telegram-text tracking-tight flex items-center gap-1.5 font-mono">
-                                TeleStash
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-base text-telegram-text tracking-tight font-mono">
+                                    TeleStash
+                                </span>
+                                <span className="text-[10px] bg-telegram-primary/20 text-telegram-primary px-1.5 py-0.5 rounded font-mono font-medium">
+                                    v{appVersion}
+                                </span>
+                            </div>
                             <span className="text-[10px] text-cyan-500/70 font-mono tracking-widest uppercase">Personal Cinema Vault</span>
                         </div>
                     )}

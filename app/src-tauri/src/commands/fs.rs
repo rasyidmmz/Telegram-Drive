@@ -2185,7 +2185,7 @@ pub async fn cmd_get_files(
     while let Some(msg) = msgs.next().await.map_err(|e| e.to_string())? {
         if let Some(doc) = msg.media() {
             let caption = msg.text();
-            if caption.starts_with(SPLIT_PART_CAPTION_PREFIX) {
+            if crate::models::is_split_part_caption(caption) {
                 continue;
             }
             if let Some(manifest) = split_manifest_from_media(&client, &doc, caption).await {

@@ -50,6 +50,7 @@ pub fn cmd_play_in_mpv(
     url: String,
     message_id: Option<i32>,
     folder_id: Option<i64>,
+    title: Option<String>,
     playlist: Option<Vec<MpvPlaylistItem>>,
     start_index: Option<usize>,
     app_handle: tauri::AppHandle,
@@ -86,6 +87,9 @@ pub fn cmd_play_in_mpv(
 
         for item in items {
             let (stable_url, _) = strip_token_query(&item.url);
+            if let Some(t) = &item.title {
+                args.push(format!("--force-media-title={}", t));
+            }
             if let (Some(msg_id), Some(f_id)) = (item.message_id, item.folder_id) {
                 if let Ok(app_dir) = app_handle.path().app_data_dir() {
                     let srt_path = app_dir.join("streaming").join("captions").join(format!("{}_{}.en.srt", f_id, msg_id));
@@ -100,6 +104,9 @@ pub fn cmd_play_in_mpv(
         let (stable_url, token) = strip_token_query(&url);
         if let Some(t) = token {
             args.push(format!("--http-header-fields={}: {}", STREAM_TOKEN_HEADER, t));
+        }
+        if let Some(t) = &title {
+            args.push(format!("--force-media-title={}", t));
         }
         if let (Some(msg_id), Some(f_id)) = (message_id, folder_id) {
             if let Ok(app_dir) = app_handle.path().app_data_dir() {
@@ -207,5 +214,16 @@ mod tests {
         assert!(args.contains(&r"--watch-later-dir=C:\TeleStash\mpv-watch-later".to_string()));
         assert!(args.contains(&"--http-header-fields=X-TeleStash-Stream-Token: abc123".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("http://localhost:14201/stream/home/10"));
+    }
+
+    #[test]
+    fn test_mpv_force_media_title_arg() {
+        let item = MpvPlaylistItem {
+            url: "http://localhost:14201/stream/home/10?token=abc".to_string(),
+            message_id: Some(10),
+            folder_id: None,
+            title: Some("Movie Title 2024.mkv".to_string()),
+        };
+        assert_eq!(item.title.as_deref(), Some("Movie Title 2024.mkv"));
     }
 }

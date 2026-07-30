@@ -193,4 +193,28 @@ mod tests {
             .unwrap_err()
             .contains("duplicate"));
     }
+
+    #[test]
+    fn recognizes_legacy_split_part_captions() {
+        assert!(crate::models::is_split_part_caption("[telestash-part] movie.mkv 1/5"));
+        assert!(crate::models::is_split_part_caption("[teledrive-part] movie.mkv 1/5"));
+        assert!(crate::models::is_split_part_caption("[telegram-drive-part] movie.mkv 1/5"));
+        assert!(!crate::models::is_split_part_caption("Regular movie caption"));
+    }
+
+    #[test]
+    fn deserializes_legacy_teledrive_manifest_json() {
+        let json_data = r#"{
+            "teledrive_split": 1,
+            "filename": "legacy_movie.mkv",
+            "size": 1048576,
+            "mime_type": "video/x-matroska",
+            "file_ext": "mkv",
+            "part_size": 524288,
+            "parts": [{"message_id": 10, "size": 524288}, {"message_id": 11, "size": 524288}]
+        }"#;
+        let manifest: Result<SplitManifest, _> = serde_json::from_str(json_data);
+        assert!(manifest.is_ok());
+        assert_eq!(manifest.unwrap().filename, "legacy_movie.mkv");
+    }
 }

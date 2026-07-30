@@ -47,11 +47,18 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
         setMpvError(null);
     }, [file.id]);
 
+    // Naturally sort playlist files by filename (ascending: Ep 01 -> Ep 02 -> Ep 10)
+    const sortedPlaylistFiles = playlistFiles && playlistFiles.length > 0
+        ? [...playlistFiles].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+          )
+        : [];
+
     // Automatically trigger MPV launch when streamUrl is ready
     useEffect(() => {
         if (isMedia && streamUrl && !isPlayingInMpv && !mpvError) {
-            const playlistItems = streamInfo && playlistFiles && playlistFiles.length > 0
-                ? playlistFiles.map(f => ({
+            const playlistItems = streamInfo && sortedPlaylistFiles.length > 0
+                ? sortedPlaylistFiles.map(f => ({
                     url: `${streamInfo.base_url}/stream/${folderIdParam}/${f.id}?token=${streamInfo.token}`,
                     message_id: f.id,
                     folder_id: f.folder_id ?? undefined,
@@ -59,14 +66,15 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                 }))
                 : undefined;
 
-            const startIndex = playlistFiles && playlistFiles.length > 0
-                ? playlistFiles.findIndex(f => f.id === file.id)
+            const startIndex = sortedPlaylistFiles.length > 0
+                ? sortedPlaylistFiles.findIndex(f => f.id === file.id)
                 : undefined;
 
             invoke('cmd_play_in_mpv', {
                 url: streamUrl,
                 messageId: file.id,
                 folderId: file.folder_id,
+                title: file.name,
                 playlist: playlistItems,
                 startIndex: startIndex !== undefined && startIndex >= 0 ? startIndex : undefined
             })
@@ -81,7 +89,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     toast.error(`Gagal memutar di MPV: ${errMsg}`);
                 });
         }
-    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id, file, playlistFiles, streamInfo, folderIdParam]);
+    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id, file.name, file, sortedPlaylistFiles, streamInfo, folderIdParam]);
 
     // Handle keyboard shortcuts (Left/Right arrow keys for navigation, Esc for close)
     useEffect(() => {
