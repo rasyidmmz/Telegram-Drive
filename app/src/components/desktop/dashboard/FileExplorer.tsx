@@ -115,9 +115,9 @@ export function FileExplorer({
     }, []);
 
     const handleGenerateCc = async (file: TelegramFile) => {
-        let toastId = toast.loading("Memulai pembuatan subtitle...", {
+        let toastId = toast.loading("Starting subtitle generation...", {
             action: {
-                label: "Batal",
+                label: "Cancel",
                 onClick: () => {
                     invoke('cmd_cancel_english_cc', { messageId: file.id, folderId: file.folder_id });
                 }
@@ -133,19 +133,19 @@ export function FileExplorer({
                     const status: any = await invoke('cmd_get_english_cc_status', { messageId: file.id, folderId: file.folder_id });
                     if (status.phase === 'ready') {
                         clearInterval(interval);
-                        toast.success("Subtitle English CC berhasil dibuat!", { id: toastId });
+                        toast.success("English CC Subtitles generated successfully!", { id: toastId });
                     } else if (status.phase === 'error') {
                         clearInterval(interval);
-                        toast.error(`Gagal membuat subtitle: ${status.error}`, { id: toastId });
+                        toast.error(`Failed to generate subtitle: ${status.error}`, { id: toastId });
                     } else if (status.phase === 'cancelled') {
                         clearInterval(interval);
-                        toast.info("Pembuatan subtitle dibatalkan.", { id: toastId });
+                        toast.info("Subtitle generation cancelled.", { id: toastId });
                     } else {
-                        const phaseText = status.phase === 'extracting' ? 'Mengekstrak audio' : 'Mentranskripsi';
+                        const phaseText = status.phase === 'extracting' ? 'Extracting audio' : 'Transcribing';
                         toast.loading(`${phaseText}: ${Math.round(status.progress || 0)}%`, {
                             id: toastId,
                             action: {
-                                label: "Batal",
+                                label: "Cancel",
                                 onClick: () => {
                                     invoke('cmd_cancel_english_cc', { messageId: file.id, folderId: file.folder_id });
                                 }
@@ -154,11 +154,11 @@ export function FileExplorer({
                     }
                 } catch (err) {
                     clearInterval(interval);
-                    toast.error(`Error pemantauan status: ${err}`, { id: toastId });
+                    toast.error(`Status monitoring error: ${err}`, { id: toastId });
                 }
             }, 750);
         } catch (err) {
-            toast.error(`Gagal memulai: ${err}`, { id: toastId });
+            toast.error(`Failed to start: ${err}`, { id: toastId });
         }
     };
 

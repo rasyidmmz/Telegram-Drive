@@ -295,10 +295,10 @@ async fn run_whisper_transcription(
     cancel_rx: &mut oneshot::Receiver<()>,
 ) -> Result<(), String> {
     let whisper_cli = resolve_whisper_binary(app_handle, "whisper-cli.exe")
-        .ok_or_else(|| "whisper-cli.exe tidak ditemukan di direktori aplikasi.".to_string())?;
+        .ok_or_else(|| "whisper-cli.exe was not found in application directory.".to_string())?;
 
     let model_path = resolve_whisper_binary(app_handle, "ggml-base.en.bin")
-        .ok_or_else(|| "ggml-base.en.bin tidak ditemukan di direktori aplikasi.".to_string())?;
+        .ok_or_else(|| "ggml-base.en.bin model was not found in application directory.".to_string())?;
 
     let threads = (std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) / 2)
         .max(1)
@@ -451,7 +451,7 @@ pub async fn cmd_generate_english_cc(
             if srt_temp_file.exists() {
                 let _ = std::fs::create_dir_all(srt_path.parent().unwrap());
                 std::fs::copy(&srt_temp_file, &srt_path)
-                    .map_err(|e| format!("Gagal menyimpan subtitle final: {}", e))?;
+                    .map_err(|e| format!("Failed to save final subtitle: {}", e))?;
 
                 // Auto-upload .en.srt to Telegram folder
                 if let Ok(peer) = crate::commands::utils::resolve_peer(&client, folder_id, &state_tg.peer_cache).await {
@@ -474,7 +474,7 @@ pub async fn cmd_generate_english_cc(
                                     let _ = client.send_message(&peer, grammers_client::InputMessage::new().file(uploaded)).await;
                                     crate::transfer_log::record_transfer_log(
                                         "Subtitle Auto-Upload",
-                                        &format!("Subtitle {} berhasil diunggah ke folder Telegram.", srt_name),
+                                        &format!("Subtitle {} uploaded successfully to Telegram folder.", srt_name),
                                         None,
                                     );
                                 }
@@ -483,7 +483,7 @@ pub async fn cmd_generate_english_cc(
                     }
                 }
             } else {
-                return Err("File subtitle temporer tidak ditemukan setelah transkripsi.".to_string());
+                return Err("Temporary subtitle file not found after transcription.".to_string());
             }
 
             // Cleanup

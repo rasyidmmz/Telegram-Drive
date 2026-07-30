@@ -21,10 +21,10 @@ export function WatchLogsModal({ onClose }: WatchLogsModalProps) {
     }, []);
 
     const handleClear = () => {
-        if (window.confirm('Apakah Anda yakin ingin menghapus seluruh Watch History Logs?')) {
+        if (window.confirm('Are you sure you want to clear all Watch History Logs?')) {
             clearWatchLogs();
             reloadLogs();
-            toast.success('Watch History Logs berhasil dibersihkan');
+            toast.success('Watch History Logs cleared successfully');
         }
     };
 
@@ -37,7 +37,7 @@ export function WatchLogsModal({ onClose }: WatchLogsModalProps) {
         a.download = `telestash_watch_logs_${new Date().toISOString().slice(0, 10)}.log`;
         a.click();
         URL.revokeObjectURL(url);
-        toast.success('Log aktivitas tontonan berhasil diunduh');
+        toast.success('Watch activity log downloaded successfully');
     };
 
     const filteredLogs = logs.filter(log => {
@@ -79,7 +79,7 @@ export function WatchLogsModal({ onClose }: WatchLogsModalProps) {
                                 </span>
                             </h2>
                             <p className="text-xs text-gray-400 font-mono">
-                                Catatan Aktivitas Pemutaran Media Cinema & Subtitle AI
+                                Cinema Media Playback & AI Subtitle Activity Log
                             </p>
                         </div>
                     </div>
@@ -97,7 +97,7 @@ export function WatchLogsModal({ onClose }: WatchLogsModalProps) {
                         <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                         <input
                             type="text"
-                            placeholder="Cari nama film atau event..."
+                            placeholder="Search movie title or event..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="w-full bg-slate-900 border border-gray-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-gray-200 font-mono placeholder:text-gray-600 focus:outline-none focus:border-cyan-500/50"
@@ -110,7 +110,7 @@ export function WatchLogsModal({ onClose }: WatchLogsModalProps) {
                             onChange={(e) => setFilterType(e.target.value)}
                             className="bg-slate-900 border border-gray-800 rounded-lg px-3 py-1.5 text-xs font-mono text-gray-300 focus:outline-none focus:border-cyan-500/50"
                         >
-                            <option value="ALL">Semua Event</option>
+                            <option value="ALL">All Events</option>
                             <option value="PLAY_START">PLAY_START</option>
                             <option value="COMPLETED">COMPLETED</option>
                             <option value="SUBTITLE_GEN">SUBTITLE_GEN</option>
@@ -142,7 +142,7 @@ export function WatchLogsModal({ onClose }: WatchLogsModalProps) {
                     {filteredLogs.length === 0 ? (
                         <div className="flex flex-col items-center justify-center h-full text-gray-500">
                             <Film className="w-10 h-10 mb-2 stroke-[1.5] opacity-40" />
-                            <p className="text-xs">Belum ada riwayat aktivitas pemutaran video</p>
+                            <p className="text-xs">No video playback activity history found</p>
                         </div>
                     ) : (
                         filteredLogs.map((log) => {
@@ -186,7 +186,7 @@ export function WatchLogsModal({ onClose }: WatchLogsModalProps) {
                         onClick={onClose}
                         className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors"
                     >
-                        Tutup
+                        Close
                     </button>
                 </div>
             </div>

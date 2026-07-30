@@ -133,7 +133,7 @@ pub fn cmd_play_in_mpv(
     std::process::Command::new("mpv")
         .args(&args)
         .spawn()
-        .map_err(|e| format!("Gagal menjalankan MPV: {}. Pastikan 'mpv' terpasang.", e))?;
+        .map_err(|e| format!("Failed to launch MPV: {}. Ensure 'mpv' is installed.", e))?;
     Ok(())
 }
 

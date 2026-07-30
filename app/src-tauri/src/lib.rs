@@ -324,8 +324,8 @@ pub fn run() {
             restart_api_server(app.handle());
 
             // Windows System Tray Integration
-            if let Ok(show_item) = tauri::menu::MenuItemBuilder::with_id("show", "Buka TeleStash").build(app) {
-                if let Ok(quit_item) = tauri::menu::MenuItemBuilder::with_id("quit", "Keluar dari TeleStash").build(app) {
+            if let Ok(show_item) = tauri::menu::MenuItemBuilder::with_id("show", "Open TeleStash").build(app) {
+                if let Ok(quit_item) = tauri::menu::MenuItemBuilder::with_id("quit", "Exit TeleStash").build(app) {
                     if let Ok(tray_menu) = tauri::menu::MenuBuilder::new(app).items(&[&show_item, &quit_item]).build() {
                         let icon = app.default_window_icon().cloned();
                         if let Some(icon) = icon {

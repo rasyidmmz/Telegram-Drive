@@ -84,9 +84,9 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                 })
                 .catch((err) => {
                     console.error('Failed to play in MPV:', err);
-                    const errMsg = err?.toString() || 'Gagal membuka MPV';
+                    const errMsg = err?.toString() || 'Failed to open MPV';
                     setMpvError(errMsg);
-                    toast.error(`Gagal memutar di MPV: ${errMsg}`);
+                    toast.error(`Failed to play in MPV: ${errMsg}`);
                 });
         }
     }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id, file.name, file, sortedPlaylistFiles, streamInfo, folderIdParam]);
@@ -124,7 +124,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     <button
                         onClick={onClose}
                         className="w-10 h-10 flex items-center justify-center text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all"
-                        title="Tutup (Esc)"
+                        title="Close (Esc)"
                     >
                         <X className="w-5 h-5" />
                     </button>
@@ -135,7 +135,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     <button
                         onClick={onPrev}
                         className="absolute left-4 top-1/2 -translate-y-1/2 p-2 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all z-10"
-                        title="Sebelumnya (ArrowLeft / J)"
+                        title="Previous (ArrowLeft / J)"
                     >
                         <ChevronLeft className="w-6 h-6" />
                     </button>
@@ -145,7 +145,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     <button
                         onClick={onNext}
                         className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-white/50 hover:text-white bg-white/10 hover:bg-white/20 rounded-full transition-all z-10"
-                        title="Berikutnya (ArrowRight / L)"
+                        title="Next (ArrowRight / L)"
                     >
                         <ChevronRight className="w-6 h-6" />
                     </button>
@@ -155,14 +155,14 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                 {!streamUrl ? (
                     <div className="flex flex-col items-center gap-4 py-6">
                         <div className="w-10 h-10 border-4 border-telegram-primary border-t-transparent rounded-full animate-spin"></div>
-                        <p className="text-white/80">Menghubungkan stream...</p>
+                        <p className="text-white/80">Connecting stream...</p>
                     </div>
                 ) : mpvError ? (
                     <div className="flex flex-col items-center gap-4 py-4 text-center">
                         <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 border border-red-500/20">
                             <X className="w-8 h-8" />
                         </div>
-                        <h3 className="text-lg font-bold text-white">Gagal Memutar Media</h3>
+                        <h3 className="text-lg font-bold text-white">Failed to Play Media</h3>
                         <p className="text-sm text-white/60 max-w-sm">{mpvError}</p>
                     </div>
                 ) : (
@@ -179,8 +179,8 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                             <h3 className="text-xl font-bold text-white mb-2 line-clamp-2 px-6">{file.name}</h3>
                             <p className="text-sm text-white/60">
                                 {isPlayingInMpv 
-                                    ? `Memutar ${isVideo ? 'video' : 'audio'} di MPV secara native...` 
-                                    : `Membuka ${isVideo ? 'video' : 'audio'} di MPV...`}
+                                    ? `Playing ${isVideo ? 'video' : 'audio'} natively in MPV...` 
+                                    : `Opening ${isVideo ? 'video' : 'audio'} in MPV...`}
                             </p>
                         </div>
 
@@ -189,19 +189,19 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                                 onClick={() => {
                                     if (streamUrl) {
                                         invoke('cmd_play_in_mpv', { url: streamUrl, messageId: file.id, folderId: file.folder_id }).catch(err => {
-                                            toast.error(`Gagal membuka kembali MPV: ${err}`);
+                                            toast.error(`Failed to reopen MPV: ${err}`);
                                         });
                                     }
                                 }}
                                 className="w-full py-3 bg-telegram-primary text-black rounded-xl hover:shadow-lg hover:shadow-telegram-primary/20 transition-all text-sm font-semibold"
                             >
-                                Buka Kembali di MPV
+                                Reopen in MPV
                             </button>
                             <button
                                 onClick={onClose}
                                 className="w-full py-3 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl transition-all text-sm font-semibold"
                             >
-                                Tutup Pemutar
+                                Close Player
                             </button>
                         </div>
                     </>
@@ -210,7 +210,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                 {/* Playlist Counter */}
                 {typeof currentIndex === 'number' && typeof totalItems === 'number' && totalItems > 0 && (
                     <div className="text-[11px] text-white/40 select-none">
-                        Berkas {currentIndex + 1} dari {totalItems}
+                        File {currentIndex + 1} of {totalItems}
                     </div>
                 )}
             </div>

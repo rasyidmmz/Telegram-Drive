@@ -59,9 +59,9 @@ export function StorageAnalyticsModal({ files, folders, onClose }: StorageAnalyt
     const handlePurgeCache = async () => {
         try {
             await invoke('cmd_clean_cache');
-            toast.success('Cache preview & thumbnail berhasil dibersihkan!');
+            toast.success('Preview & thumbnail cache cleared successfully!');
         } catch (err) {
-            toast.error(`Gagal membersihkan cache: ${err}`);
+            toast.error(`Failed to clear cache: ${err}`);
         }
     };
 
@@ -204,14 +204,14 @@ export function StorageAnalyticsModal({ files, folders, onClose }: StorageAnalyt
                         className="px-4 py-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl hover:bg-red-500/20 text-xs font-semibold font-mono flex items-center gap-2 transition-all"
                     >
                         <Trash2 className="w-3.5 h-3.5" />
-                        BERSIHKAN CACHE LOKAL
+                        PURGE LOCAL CACHE
                     </button>
 
                     <button
                         onClick={onClose}
                         className="px-5 py-2 bg-cyan-500 text-black hover:bg-cyan-400 font-semibold rounded-xl text-xs transition-all font-mono"
                     >
-                        TUTUP
+                        CLOSE
                     </button>
                 </div>
 
