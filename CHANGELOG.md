@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0]
+
+### Changed
+
+- Migrated Telegram API client to `grammers` crates.io v0.10.0.
+- Upgraded system metrics library `sysinfo` to v0.39.
+- Updated all frontend npm dependencies and pinned CI/CD GitHub Actions toolchain SHA.
+- Refactored Telegram peer resolution and media handling for grammers 0.10 compatibility.
+
 ## [1.1.1]
 
 ### Added

@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use crate::commands::TelegramState;
 use crate::commands::utils::resolve_peer;
 use crate::transfer_policy::TransferPolicy;
-use grammers_client::types::Media;
+use grammers_client::media::Media;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ArchiveEntry {
@@ -109,7 +109,7 @@ async fn prepare_archive_operation(
         .map_err(|e| format!("Failed to resolve peer: {}", e))?;
 
     let messages = client
-        .get_messages_by_id(&peer, &[message_id])
+        .get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| format!("Failed to fetch message: {}", e))?;
 
@@ -122,12 +122,12 @@ async fn prepare_archive_operation(
     let media = msg.media().ok_or("Message has no media")?;
 
     let filename = match &media {
-        Media::Document(d) => d.name().to_string(),
+        Media::Document(d) => d.name().unwrap_or("").to_string(),
         _ => "unknown".to_string(),
     };
 
     let file_size = match &media {
-        Media::Document(d) => d.size() as u64,
+        Media::Document(d) => d.size().unwrap_or(0) as u64,
         _ => 0,
     };
 
@@ -504,3 +504,5 @@ fn check_non_empty(entries: &[ArchiveEntry], filename: &str, label: &str) -> Res
     }
     Ok(())
 }
+
+

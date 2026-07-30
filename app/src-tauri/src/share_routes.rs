@@ -2,7 +2,7 @@ use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder, cookie::Co
 use crate::commands::TelegramState;
 use crate::commands::utils::resolve_peer;
 use crate::db::DbConnection;
-use grammers_client::types::Media;
+use grammers_client::media::Media;
 use sha2::{Sha256, Digest};
 use std::sync::Arc;
 use serde::Deserialize;
@@ -241,7 +241,7 @@ async fn get_shared_file(
         }
     };
     
-    match client.get_messages_by_id(peer, &[row.message_id]).await {
+    match client.get_messages_by_id(crate::commands::peer_to_ref(peer), &[row.message_id]).await {
         Ok(messages) => {
             if let Some(Some(msg)) = messages.first() {
                 if let Some(media) = msg.media() {
@@ -322,3 +322,4 @@ pub fn configure_share_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(get_shared_file)
        .service(verify_shared_file_password);
 }
+

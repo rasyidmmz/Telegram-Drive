@@ -284,7 +284,7 @@ pub async fn cmd_prepare_fmp4_stream(
     })?;
 
     let messages = client
-        .get_messages_by_id(&peer, &[message_id])
+        .get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| {
             let rs = remux_state.inner().clone();
@@ -506,3 +506,4 @@ async fn serve_fmp4(
 pub fn configure_fmp4_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(serve_fmp4);
 }
+

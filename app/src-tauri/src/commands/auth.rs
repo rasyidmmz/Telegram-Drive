@@ -63,7 +63,7 @@ pub async fn ensure_client_initialized(
     let session_path_str = session_path.to_string_lossy().to_string();
     log::info!("Opening session at: {}", session_path_str);
     
-    let mut session_open_result = SqliteSession::open(&session_path_str);
+    let mut session_open_result = SqliteSession::open(&session_path_str).await;
     
     // Retry opening the session database up to 5 times (every 100ms)
     // in case the database is temporarily locked by the old shutting down runner.
@@ -71,7 +71,7 @@ pub async fn ensure_client_initialized(
         for attempt in 1..=5 {
             log::warn!("Failed to open session on attempt {} (database may be locked). Retrying in 100ms...", attempt);
             tokio::time::sleep(Duration::from_millis(100)).await;
-            session_open_result = SqliteSession::open(&session_path_str);
+            session_open_result = SqliteSession::open(&session_path_str).await;
             if session_open_result.is_ok() {
                 break;
             }
@@ -86,7 +86,7 @@ pub async fn ensure_client_initialized(
             let _ = std::fs::remove_file(format!("{}-wal", session_path_str));
             let _ = std::fs::remove_file(format!("{}-shm", session_path_str));
             
-            SqliteSession::open(&session_path_str)
+            SqliteSession::open(&session_path_str).await
                 .map_err(|err| format!("Failed to open session after recreation: {}", err))?
         }
     };
@@ -95,7 +95,7 @@ pub async fn ensure_client_initialized(
 
     let session = Arc::new(session);
     let pool = SenderPool::with_configuration(session, api_id, connection_params);
-    let client = Client::new(&pool);
+    let client = Client::new(pool.handle);
     
     // Create shutdown channel for this runner
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

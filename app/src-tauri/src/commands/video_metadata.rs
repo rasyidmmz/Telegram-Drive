@@ -1,5 +1,5 @@
 use tauri::State;
-use grammers_client::types::Media;
+use grammers_client::media::Media;
 use crate::TelegramState;
 use crate::commands::utils::resolve_peer;
 use crate::mp4_utils;
@@ -41,7 +41,7 @@ pub async fn cmd_get_video_metadata(
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
     let messages = client
-        .get_messages_by_id(&peer, &[message_id])
+        .get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| e.to_string())?;
     let msg = messages.into_iter().flatten().next()
@@ -49,11 +49,11 @@ pub async fn cmd_get_video_metadata(
     let media = msg.media().ok_or_else(|| "No media".to_string())?;
 
     let size = match &media {
-        Media::Document(d) => d.size() as u64,
+        Media::Document(d) => d.size().unwrap_or(0) as u64,
         _ => return Err("Not a document".to_string()),
     };
     let file_name = match &media {
-        Media::Document(d) => d.name().to_lowercase(),
+        Media::Document(d) => d.name().unwrap_or("").to_lowercase(),
         _ => "file".to_string(),
     };
 
@@ -129,11 +129,11 @@ pub struct ParsedMetadata {
 /// Download the first 2 MB of a file and parse metadata + scan tkhd.
 async fn download_and_process(
     client: &grammers_client::Client,
-    peer: &grammers_client::types::Peer,
+    peer: &grammers_client::peer::Peer,
     req: &BatchMetadataRequest,
 ) -> Result<BatchMetadataEntry, String> {
     let messages = client
-        .get_messages_by_id(peer, &[req.message_id])
+        .get_messages_by_id(crate::commands::peer_to_ref(peer), &[req.message_id])
         .await
         .map_err(|e| e.to_string())?;
     let msg = messages.into_iter().flatten().next()
@@ -141,7 +141,7 @@ async fn download_and_process(
     let media = msg.media().ok_or_else(|| "No media".to_string())?;
 
     let size = match &media {
-        Media::Document(d) => d.size() as u64,
+        Media::Document(d) => d.size().unwrap_or(0) as u64,
         _ => return Err("Not a document".to_string()),
     };
 
@@ -177,14 +177,14 @@ async fn download_moov_chunk(
 ) -> Result<Vec<u8>, String> {
     let peer = resolve_peer(client, folder_id, &state.peer_cache).await?;
     let messages = client
-        .get_messages_by_id(&peer, &[message_id])
+        .get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| e.to_string())?;
     let msg = messages.into_iter().flatten().next()
         .ok_or_else(|| format!("Message {message_id} not found"))?;
     let media = msg.media().ok_or_else(|| "No media".to_string())?;
     let size = match &media {
-        Media::Document(d) => d.size() as u64,
+        Media::Document(d) => d.size().unwrap_or(0) as u64,
         _ => return Err("Not a document".to_string()),
     };
     download_bytes(client, &media, size).await
@@ -242,3 +242,5 @@ pub fn parse_mp4_metadata(buffer: &[u8]) -> Result<ParsedMetadata, String> {
         track_count: context.tracks.len(),
     })
 }
+
+

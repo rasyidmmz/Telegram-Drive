@@ -23,7 +23,7 @@ use tokio::sync::Mutex;
 
 use crate::commands::TelegramState;
 use crate::mp4_utils;
-use grammers_client::types::Media;
+use grammers_client::media::Media;
 use tauri::Manager;
 
 // ── Constants ───────────────────────────────────────────────────────────
@@ -456,7 +456,7 @@ pub async fn cache_original(
     progress_callback: impl Fn(f32),
 ) -> Result<u64, String> {
     let total_size = match media {
-        Media::Document(d) => d.size() as u64,
+        Media::Document(d) => d.size().unwrap_or(0) as u64,
         _ => return Err("Not a document".to_string()),
     };
 
@@ -967,7 +967,7 @@ pub async fn cmd_prepare_transcoded_stream(
     ).await?;
 
     let messages = client
-        .get_messages_by_id(&peer, &[message_id])
+        .get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| e.to_string())?;
 
@@ -1030,7 +1030,7 @@ async fn get_duration_from_media(
     ).await?;
 
     let messages = client
-        .get_messages_by_id(&peer, &[message_id])
+        .get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| e.to_string())?;
 
@@ -1040,7 +1040,7 @@ async fn get_duration_from_media(
     let media = msg.media().ok_or_else(|| "No media".to_string())?;
 
     let size = match &media {
-        Media::Document(d) => d.size() as u64,
+        Media::Document(d) => d.size().unwrap_or(0) as u64,
         _ => return Err("Not a document".to_string()),
     };
 
@@ -1615,3 +1615,5 @@ pub fn configure_hls_routes(cfg: &mut web::ServiceConfig) {
        .service(hls_playlist)
        .service(hls_segment);
 }
+
+

@@ -1,7 +1,8 @@
 use tauri::{Emitter, Manager, State};
 use std::sync::Arc;
-use grammers_client::types::{Media, Peer};
-use grammers_client::InputMessage;
+use grammers_client::media::Media;
+use grammers_client::peer::Peer;
+use grammers_client::message::InputMessage;
 use grammers_tl_types as tl;
 use crate::TelegramState;
 use crate::models::{
@@ -115,8 +116,8 @@ pub async fn create_folder_inner(
              let chat = u.chats.first().ok_or("No chat in updates")?;
              match chat {
                  tl::enums::Chat::Channel(c) => {
-                      let channel_obj = grammers_client::types::Channel { raw: c.clone() };
-                      peer_cache.write().await.insert(c.id, grammers_client::types::Peer::Channel(channel_obj));
+                      
+                      peer_cache.write().await.insert(c.id, grammers_client::peer::Peer::from_raw(client, tl::enums::Chat::Channel(c.clone())));
                       (c.id, c.access_hash.unwrap_or(0))
                  }
                  _ => return Err("Created chat is not a channel".to_string()),
@@ -436,9 +437,9 @@ pub(crate) async fn split_manifest_from_media(
     match media {
         Media::Document(d)
             if is_split_manifest_candidate(
-                d.name(),
+                d.name().unwrap_or(""),
                 d.mime_type(),
-                d.size() as u64,
+                d.size().unwrap_or(0) as u64,
                 caption,
             ) =>
         {
@@ -466,7 +467,7 @@ pub(crate) async fn validate_split_parts_present(
     for chunk in manifest.parts.chunks(100) {
         let ids: Vec<i32> = chunk.iter().map(|part| part.message_id).collect();
         let messages = client
-            .get_messages_by_id(peer, &ids)
+            .get_messages_by_id(crate::commands::peer_to_ref(peer), &ids)
             .await
             .map_err(|e| format!("Failed to validate split parts: {}", e))?;
 
@@ -525,7 +526,7 @@ async fn inspect_split_parts(
 
     for chunk in manifest.parts.chunks(100) {
         let ids: Vec<i32> = chunk.iter().map(|part| part.message_id).collect();
-        let messages = match client.get_messages_by_id(peer, &ids).await {
+        let messages = match client.get_messages_by_id(crate::commands::peer_to_ref(peer), &ids).await {
             Ok(messages) => messages,
             Err(e) => {
                 issues.push(format!("Failed to fetch split parts: {}", e));
@@ -558,7 +559,7 @@ async fn inspect_split_parts(
 
 fn media_size(media: &Media) -> Option<u64> {
     match media {
-        Media::Document(d) => Some(d.size() as u64),
+        Media::Document(d) => d.size().map(|s| s as u64),
         _ => None,
     }
 }
@@ -730,7 +731,7 @@ async fn upload_path_and_send(
     let mut send_attempts_made = 0;
     for attempt in 0..=max_send_attempts {
         send_attempts_made = attempt + 1;
-        match client.send_message(peer, message.clone()).await {
+        match client.send_message(crate::commands::peer_to_ref(peer), message.clone()).await {
             Ok(msg) => return Ok(msg.id()),
             Err(e) => {
                 let err = map_error(e);
@@ -765,7 +766,7 @@ pub(crate) async fn delete_message_ids(
 ) -> Result<(), String> {
     for chunk in ids.chunks(100) {
         client
-            .delete_messages(peer, chunk)
+            .delete_messages(crate::commands::peer_to_ref(peer), chunk)
             .await
             .map_err(|e| {
                 let err = format!("Delete failed: {}", e);
@@ -792,7 +793,7 @@ pub(crate) async fn forward_message_ids_checked(
     let mut forwarded_ids = Vec::new();
 
     for chunk in ids.chunks(100) {
-        let messages = match client.forward_messages(target_peer, chunk, source_peer).await {
+        let messages = match client.forward_messages(crate::commands::peer_to_ref(target_peer), chunk, crate::commands::peer_to_ref(source_peer)).await {
             Ok(messages) => messages,
             Err(e) => {
                 cleanup_split_messages(client, target_peer, &forwarded_ids).await;
@@ -1215,7 +1216,7 @@ async fn download_split_file(
         }
 
         let messages = client
-            .get_messages_by_id(peer, &[part.message_id])
+            .get_messages_by_id(crate::commands::peer_to_ref(peer), &[part.message_id])
             .await
             .map_err(|e| e.to_string())?;
         let msg = messages
@@ -1683,7 +1684,7 @@ async fn cmd_upload_file_inner(
 
     for attempt in 0..=max_retries {
         send_attempts_made = attempt + 1;
-        match client.send_message(&peer, message.clone()).await {
+        match client.send_message(crate::commands::peer_to_ref(&peer), message.clone()).await {
             Ok(_) => {
                 // Bandwidth was already reserved by try_reserve_up at start
         if !tid.is_empty() {
@@ -1767,7 +1768,7 @@ pub async fn cmd_rename_file(
     // Verify the message exists before attempting to edit it.
     // This avoids a cryptic MESSAGE_ID_INVALID RPC error when the message
     // was moved (forwarded → new ID) or deleted since the file list was loaded.
-    let messages = client.get_messages_by_id(&peer, &[message_id])
+    let messages = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| format!("Failed to fetch message for rename: {}", e))?;
     if messages.iter().flatten().next().is_none() {
@@ -1809,6 +1810,7 @@ pub async fn cmd_rename_file(
         schedule_date: None,
         quick_reply_shortcut_id: None,
         schedule_repeat_period: None,
+        rich_message: None,
     }).await.map_err(|e| format!("Failed to rename file: {}", e))?;
 
     Ok(true)
@@ -1828,7 +1830,7 @@ pub async fn cmd_check_split_file_health(
     let client = client_opt.ok_or_else(|| "Client not connected".to_string())?;
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
     let messages = client
-        .get_messages_by_id(&peer, &[message_id])
+        .get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| format!("Failed to fetch message for split health check: {}", e))?;
     let Some(msg) = messages.into_iter().flatten().next() else {
@@ -1864,7 +1866,7 @@ pub async fn cmd_delete_file(
     // Verify the message exists before attempting to delete it.
     // This avoids a cryptic MESSAGE_ID_INVALID RPC error when the message
     // was already moved or deleted since the file list was loaded.
-    let messages = client.get_messages_by_id(&peer, &[message_id])
+    let messages = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
         .await
         .map_err(|e| format!("Failed to fetch message for delete: {}", e))?;
     let msg = messages.iter().flatten().next().ok_or_else(|| format!(
@@ -1927,7 +1929,7 @@ pub async fn cmd_download_file(
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
     // Use get_messages_by_id for efficient message lookup (same as server.rs)
-    let messages = client.get_messages_by_id(&peer, &[message_id]).await.map_err(|e| e.to_string())?;
+    let messages = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id]).await.map_err(|e| e.to_string())?;
     
     let msg = messages.into_iter()
         .flatten()
@@ -1953,7 +1955,7 @@ pub async fn cmd_download_file(
     }
 
     let expected_file_size = match &media {
-        Media::Document(d) => Some(d.size() as u64),
+        Media::Document(d) => Some(d.size().unwrap_or(0) as u64),
         _ => None,
     };
     let total_size = expected_file_size.unwrap_or(match &media {
@@ -2111,7 +2113,7 @@ pub async fn cmd_move_files(
     let target_peer = resolve_peer(&client, target_folder_id, &state.peer_cache).await?;
 
     let source_messages = client
-        .get_messages_by_id(&source_peer, &message_ids)
+        .get_messages_by_id(crate::commands::peer_to_ref(&source_peer), &message_ids)
         .await
         .map_err(|e| format!("Failed to inspect files before move: {}", e))?;
 
@@ -2181,7 +2183,7 @@ pub async fn cmd_get_files(
     
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
 
-    let mut msgs = client.iter_messages(&peer);
+    let mut msgs = client.iter_messages(crate::commands::peer_to_ref(&peer));
     while let Some(msg) = msgs.next().await.map_err(|e| e.to_string())? {
         if let Some(doc) = msg.media() {
             let caption = msg.text();
@@ -2203,7 +2205,7 @@ pub async fn cmd_get_files(
             }
             let (name, size, mime, ext) = match doc {
                 Media::Document(d) => {
-                    let doc_name = d.name().to_string();
+                    let doc_name = d.name().unwrap_or("").to_string();
                     // Prefer the message caption (set by rename via EditMessage) over the
                     // document's built-in filename attribute, so renames persist across refreshes.
                     let display_name = if caption.is_empty() { doc_name.clone() } else { caption.to_string() };
@@ -2211,7 +2213,7 @@ pub async fn cmd_get_files(
                     let m = d.mime_type().map(|s| s.to_string());
                     // Extension always from the original document name for correct file-type icon
                     let e = std::path::Path::new(&doc_name).extension().map(|os| os.to_str().unwrap_or("").to_string());
-                    (display_name, s, m, e)
+                    (display_name, s.unwrap_or(0), m, e)
                 },
                 Media::Photo(_) => ("Photo.jpg".to_string(), 0, Some("image/jpeg".into()), Some("jpg".into())),
                 _ => ("Unknown".to_string(), 0, None, None),
@@ -3306,7 +3308,7 @@ pub async fn cmd_upload_from_url(
 
     for attempt in 0..=max_retries {
         send_attempts_made = attempt + 1;
-        match client.send_message(&peer, message.clone()).await {
+        match client.send_message(crate::commands::peer_to_ref(&peer), message.clone()).await {
             Ok(_) => {
                 send_success = true;
                 break;
@@ -3355,3 +3357,5 @@ pub async fn cmd_upload_from_url(
         Err(format!("Upload failed after {} attempts: {}", send_attempts_made, last_err))
     }
 }
+
+
