@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.0]
+
+### Fixed
+
+- Legacy split part file leakage in folder views ([teledrive-part], [telegram-drive-part], etc.).
+- Inject media filename into MPV sidecar titles instead of numeric message IDs.
+- Natural ascending sort order for playlists (Ep 01 -> Ep 02 -> Ep 10) and directional arrow key alignment.
+- Safe Option map handling for API sparse fieldsets.
+- Official v1.1.0 version badge display in the top-left sidebar header.
+
 ## [1.0.0]
 
 ### Added
