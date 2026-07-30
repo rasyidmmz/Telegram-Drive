@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.1.1]
+
+### Added
+
+- Enhanced Windows 11 System Tray menu with 4 quick controls (`🍿 Continue Watching`, `⏯️ Pause/Resume Transfers`, `Open`, `Exit`).
+
+### Changed
+
+- Updated GitHub Actions release workflow runner to Node.js 26 (`FORCE_JAVASCRIPT_ACTIONS_NODE_TYPE: node26`).
+- Translated all hardcoded UI components and Rust backend error messages to English.
+
 ## [1.1.0]
 
 ### Fixed
