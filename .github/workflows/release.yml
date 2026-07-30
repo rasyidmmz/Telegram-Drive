@@ -63,7 +63,7 @@ jobs:
             npm = (& npm --version)
             rustc = (& rustc --version)
             cargo = (& cargo --version)
-            tauri_cli = (& npm exec tauri -- --version)
+            tauri_cli = (& npm --prefix app exec tauri -- --version)
           }
           $context | ConvertTo-Json | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'release-context.json')
           "## Release validation context" | Add-Content $env:GITHUB_STEP_SUMMARY
