@@ -51,7 +51,7 @@ pub mod streaming_buffer;
 pub mod session_health;
 pub mod batch_cc_queue;
 
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 
 
 use tokio::sync::Mutex;
@@ -324,38 +324,61 @@ pub fn run() {
             restart_api_server(app.handle());
 
             // Windows System Tray Integration
-            if let Ok(show_item) = tauri::menu::MenuItemBuilder::with_id("show", "Open TeleStash").build(app) {
-                if let Ok(quit_item) = tauri::menu::MenuItemBuilder::with_id("quit", "Exit TeleStash").build(app) {
-                    if let Ok(tray_menu) = tauri::menu::MenuBuilder::new(app).items(&[&show_item, &quit_item]).build() {
-                        let icon = app.default_window_icon().cloned();
-                        if let Some(icon) = icon {
-                            let _ = tauri::tray::TrayIconBuilder::new()
-                                .icon(icon)
-                                .menu(&tray_menu)
-                                .on_menu_event(|app, event| match event.id.as_ref() {
-                                    "show" => {
-                                        if let Some(window) = app.get_webview_window("main") {
-                                            let _ = window.show();
-                                            let _ = window.unminimize();
-                                            let _ = window.set_focus();
-                                        }
+            if let Ok(continue_item) = tauri::menu::MenuItemBuilder::with_id("continue_watching", "🍿 Continue Watching").build(app) {
+                if let Ok(toggle_transfers_item) = tauri::menu::MenuItemBuilder::with_id("toggle_transfers", "⏯️ Pause/Resume Transfers").build(app) {
+                    if let Ok(show_item) = tauri::menu::MenuItemBuilder::with_id("show", "Open TeleStash").build(app) {
+                        if let Ok(quit_item) = tauri::menu::MenuItemBuilder::with_id("quit", "Exit TeleStash").build(app) {
+                            if let Ok(separator) = tauri::menu::PredefinedMenuItem::separator(app) {
+                                if let Ok(tray_menu) = tauri::menu::MenuBuilder::new(app).items(&[
+                                    &continue_item,
+                                    &toggle_transfers_item,
+                                    &separator,
+                                    &show_item,
+                                    &quit_item,
+                                ]).build() {
+                                    let icon = app.default_window_icon().cloned();
+                                    if let Some(icon) = icon {
+                                        let _ = tauri::tray::TrayIconBuilder::new()
+                                            .icon(icon)
+                                            .menu(&tray_menu)
+                                            .on_menu_event(|app, event| match event.id.as_ref() {
+                                                "continue_watching" => {
+                                                    let _ = app.emit("tray-continue-watching", ());
+                                                    if let Some(window) = app.get_webview_window("main") {
+                                                        let _ = window.show();
+                                                        let _ = window.unminimize();
+                                                        let _ = window.set_focus();
+                                                    }
+                                                }
+                                                "toggle_transfers" => {
+                                                    let _ = app.emit("tray-toggle-transfers", ());
+                                                }
+                                                "show" => {
+                                                    if let Some(window) = app.get_webview_window("main") {
+                                                        let _ = window.show();
+                                                        let _ = window.unminimize();
+                                                        let _ = window.set_focus();
+                                                    }
+                                                }
+                                                "quit" => {
+                                                    app.exit(0);
+                                                }
+                                                _ => {}
+                                            })
+                                            .on_tray_icon_event(|tray, event| {
+                                                if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = event {
+                                                    let app = tray.app_handle();
+                                                    if let Some(window) = app.get_webview_window("main") {
+                                                        let _ = window.show();
+                                                        let _ = window.unminimize();
+                                                        let _ = window.set_focus();
+                                                    }
+                                                }
+                                            })
+                                            .build(app);
                                     }
-                                    "quit" => {
-                                        app.exit(0);
-                                    }
-                                    _ => {}
-                                })
-                                .on_tray_icon_event(|tray, event| {
-                                    if let tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. } = event {
-                                        let app = tray.app_handle();
-                                        if let Some(window) = app.get_webview_window("main") {
-                                            let _ = window.show();
-                                            let _ = window.unminimize();
-                                            let _ = window.set_focus();
-                                        }
-                                    }
-                                })
-                                .build(app);
+                                }
+                            }
                         }
                     }
                 }

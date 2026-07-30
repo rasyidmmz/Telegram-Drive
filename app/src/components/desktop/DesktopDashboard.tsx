@@ -3,6 +3,7 @@ import { AnimatePresence } from 'framer-motion';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { listen } from '@tauri-apps/api/event';
 
 import { TelegramFile, BandwidthStats, ShareInfo } from '../../types';
 import { formatBytes, isMediaFile, isPdfFile, isArchiveFile, copyToClipboard } from '../../utils';
@@ -157,6 +158,40 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
 
         loggedTransferErrors.current = activeKeys;
     }, [uploadQueue, downloadQueue]);
+
+    // System Tray Menu Event Listeners
+    useEffect(() => {
+        let unlistenContinue: (() => void) | undefined;
+        let unlistenToggle: (() => void) | undefined;
+
+        listen('tray-continue-watching', () => {
+            const history = getRecentWatchHistory();
+            if (history.length > 0) {
+                const latest = history[0];
+                const targetFile: TelegramFile = {
+                    id: latest.file_id,
+                    name: latest.file_name,
+                    size: latest.file_size,
+                    sizeStr: formatBytes(latest.file_size),
+                    folder_id: latest.folder_id ?? undefined,
+                    type: 'file'
+                };
+                setPlayingFile(targetFile);
+                toast.success(`Resuming: ${latest.file_name}`);
+            } else {
+                toast.info("No recent watch history found.");
+            }
+        }).then(fn => { unlistenContinue = fn; });
+
+        listen('tray-toggle-transfers', () => {
+            toast.info("Transfer queue status toggled from system tray.");
+        }).then(fn => { unlistenToggle = fn; });
+
+        return () => {
+            unlistenContinue?.();
+            unlistenToggle?.();
+        };
+    }, []);
 
     const {
         handleDelete, handleBulkDelete, handleBulkDownload,
