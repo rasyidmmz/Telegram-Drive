@@ -56,7 +56,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 rar = "0.4"
 sevenz-rust2 = "0.7"
 walkdir = "2"
-sqlite = "0.37.0"
+sqlite = { version = "0.37.0", features = ["bundled"] }
 mp4parse = "0.17"
 urlencoding = "2"
 reqwest = { version = "0.12", features = ["stream", "rustls-tls"] }
