@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
-use grammers_session::Session;
 use tokio::sync::oneshot;
 use tokio::time::Duration;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -137,39 +136,58 @@ pub async fn cmd_check_connection(
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
 ) -> Result<bool, String> {
-    // 1. Check if client exists and is responsive
     let client_msg_opt = {
         let guard = state.client.lock().await;
         guard.as_ref().cloned()
     };
 
     if let Some(client) = client_msg_opt {
-        // Ping (e.g., get_me)
-        if client.get_me().await.is_ok() {
-            return Ok(true);
+        // 1. Check local authorization state first (instant, offline-friendly)
+        match client.is_authorized().await {
+            Ok(false) => {
+                log::info!("Connection check: Session is not authorized.");
+                return Ok(false);
+            }
+            Err(e) => {
+                log::warn!("Connection check: is_authorized error: {}", e);
+            }
+            Ok(true) => {
+                // 2. Verified authorized locally, now verify network ping with a 5s timeout
+                log::info!("Connection check: Session is authorized locally. Pinging Telegram (5s timeout)...");
+                match tokio::time::timeout(Duration::from_secs(5), client.get_me()).await {
+                    Ok(Ok(_me)) => {
+                        log::info!("Connection check: Telegram ping OK.");
+                        return Ok(true);
+                    }
+                    Ok(Err(e)) => {
+                        log::warn!("Connection check: get_me failed ({}). Session may be revoked.", e);
+                        return Ok(false);
+                    }
+                    Err(_) => {
+                        log::warn!("Connection check: get_me timed out after 5 seconds.");
+                        // Allow user into app if authorized locally even if network ping timed out (supports offline mode)
+                        return Ok(true);
+                    }
+                }
+            }
         }
-        log::warn!("Connection check failed (get_me). Attempting reconnect...");
-    } else {
-         log::warn!("Connection check: No client found. Checking for saved API ID...");
     }
 
-    // 2. Reconnect Logic
+    // 3. Fallback: If no client or is_authorized was inconclusive, try reconnect with saved API ID
     let api_id_opt = *state.api_id.lock().await;
     if let Some(api_id) = api_id_opt {
-        // Force re-init: Clear old client first to ensure fresh pool
+        log::info!("Connection check: Attempting client re-initialization with saved API ID...");
         *state.client.lock().await = None;
         
-        match ensure_client_initialized(&app_handle, &state, api_id).await {
-            Ok(c) => {
-                // Double check
-                if c.get_me().await.is_ok() {
+        match tokio::time::timeout(Duration::from_secs(8), ensure_client_initialized(&app_handle, &state, api_id)).await {
+            Ok(Ok(c)) => {
+                if let Ok(true) = c.is_authorized().await {
                     log::info!("Auto-reconnect successful.");
                     return Ok(true);
-                } else {
-                    return Err("Reconnect succeeded but ping failed.".to_string());
                 }
-            },
-            Err(e) => return Err(format!("Auto-reconnect failed: {}", e))
+            }
+            Ok(Err(e)) => log::warn!("Auto-reconnect failed: {}", e),
+            Err(_) => log::warn!("Auto-reconnect timed out after 8s"),
         }
     }
 
@@ -205,15 +223,19 @@ pub async fn cmd_reconnect_with_network_settings(
     // 3. Reinitialize with the fixed direct-transfer policy.
     let client = ensure_client_initialized(&app_handle, &state, api_id).await?;
 
-    // 4. Verify the new connection works
-    match client.get_me().await {
-        Ok(_me) => {
+    // 4. Verify the new connection works with 5s timeout
+    match tokio::time::timeout(Duration::from_secs(5), client.get_me()).await {
+        Ok(Ok(_me)) => {
             log::info!("Reconnect successful — verified via get_me().");
             Ok(true)
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             log::error!("Reconnect init succeeded but get_me failed: {}", e);
             Err(format!("Reconnected but ping failed: {}", e))
+        }
+        Err(_) => {
+            log::warn!("Reconnect get_me timed out after 5 seconds.");
+            Ok(true)
         }
     }
 }

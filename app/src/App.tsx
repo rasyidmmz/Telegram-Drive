@@ -13,8 +13,7 @@ const DesktopDashboard = React.lazy(() => import("./components/desktop/DesktopDa
 import { Toaster, toast } from "sonner";
 import { ConfirmProvider } from "./context/ConfirmContext";
 import { ThemeProvider, useTheme } from "./context/ThemeContext";
-import { SettingsProvider } from "./context/SettingsContext";
-import { useSettings } from "./context/SettingsContext";
+import { SettingsProvider, useSettings } from "./context/SettingsContext";
 import { useTranslation } from "react-i18next";
 
 const queryClient = new QueryClient();
@@ -45,7 +44,6 @@ function AppContent() {
 
   // On mount: check for a saved session and auto-restore it.
   // This is the SINGLE source of truth for the initial connection.
-  // useTelegramConnection (inside Dashboard) no longer calls cmd_connect on mount.
   useEffect(() => {
     const checkSession = async () => {
       try {
@@ -63,11 +61,20 @@ function AppContent() {
           return;
         }
 
-        // Initialize the client with the saved API ID
-        await invoke("cmd_connect", { apiId });
+        // Initialize and check connection with a 10s safety race timeout
+        const connectPromise = (async () => {
+          await invoke("cmd_connect", { apiId });
+          return await invoke<boolean>("cmd_check_connection");
+        })();
 
-        // Verify the session is still valid with Telegram servers
-        const ok = await invoke<boolean>("cmd_check_connection");
+        const timeoutPromise = new Promise<boolean>((resolve) => {
+          setTimeout(() => {
+            console.warn("Session restore check timed out after 10s, proceeding to login.");
+            resolve(false);
+          }, 10000);
+        });
+
+        const ok = await Promise.race([connectPromise, timeoutPromise]);
         if (ok) {
           setAuthStatus("authenticated");
         } else {
@@ -175,7 +182,6 @@ function AppContent() {
     </main>
   );
 }
-
 
 function App() {
   return (
