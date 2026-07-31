@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1]
+
+### Fixed
+
+- Prevented app startup freeze on "Restoring session..." splash screen by adding pre-authorization checks and timeouts.
+- Adjusted TopBar flex layout so search box dynamically scales without covering control menu buttons.
+
 ## [1.2.0]
 
 ### Changed
