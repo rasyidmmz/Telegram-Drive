@@ -142,41 +142,49 @@ pub async fn cmd_check_connection(
     };
 
     if let Some(client) = client_msg_opt {
-        // 1. Check local authorization state first (instant, offline-friendly)
-        match client.is_authorized().await {
-            Ok(false) => {
+        // 1. Check local authorization state with a 5s timeout (prevent hanging if MTProto socket is stuck)
+        let is_auth = match tokio::time::timeout(Duration::from_secs(5), client.is_authorized()).await {
+            Ok(Ok(true)) => true,
+            Ok(Ok(false)) => {
                 log::info!("Connection check: Session is not authorized. Clearing stale client...");
+                false
+            }
+            Ok(Err(e)) => {
+                log::warn!("Connection check: is_authorized error: {}", e);
+                false
+            }
+            Err(_) => {
+                log::warn!("Connection check: is_authorized timed out after 5s.");
+                false
+            }
+        };
+
+        if !is_auth {
+            *state.client.lock().await = None;
+            return Ok(false);
+        }
+
+        // 2. Verified authorized locally, now verify active network ping with get_me (5s timeout)
+        log::info!("Connection check: Session authorized. Pinging Telegram via get_me (5s timeout)...");
+        match tokio::time::timeout(Duration::from_secs(5), client.get_me()).await {
+            Ok(Ok(_me)) => {
+                log::info!("Connection check: Telegram network ping OK.");
+                return Ok(true);
+            }
+            Ok(Err(e)) => {
+                log::warn!("Connection check: get_me failed ({}). Session may be revoked.", e);
                 *state.client.lock().await = None;
                 return Ok(false);
             }
-            Err(e) => {
-                log::warn!("Connection check: is_authorized error: {}", e);
+            Err(_) => {
+                log::warn!("Connection check: get_me timed out after 5 seconds. Connection unreachable.");
                 *state.client.lock().await = None;
-            }
-            Ok(true) => {
-                // 2. Verified authorized locally, now verify network ping with a 5s timeout
-                log::info!("Connection check: Session is authorized locally. Pinging Telegram (5s timeout)...");
-                match tokio::time::timeout(Duration::from_secs(5), client.get_me()).await {
-                    Ok(Ok(_me)) => {
-                        log::info!("Connection check: Telegram ping OK.");
-                        return Ok(true);
-                    }
-                    Ok(Err(e)) => {
-                        log::warn!("Connection check: get_me failed ({}). Session may be revoked.", e);
-                        *state.client.lock().await = None;
-                        return Ok(false);
-                    }
-                    Err(_) => {
-                        log::warn!("Connection check: get_me timed out after 5 seconds.");
-                        // Allow user into app if authorized locally even if network ping timed out (supports offline mode)
-                        return Ok(true);
-                    }
-                }
+                return Ok(false);
             }
         }
     }
 
-    // 3. Fallback: If no client or is_authorized was inconclusive, try reconnect with saved API ID
+    // 3. Fallback: If no client loaded yet, try initializing with saved API ID
     let api_id_opt = *state.api_id.lock().await;
     if let Some(api_id) = api_id_opt {
         log::info!("Connection check: Attempting client re-initialization with saved API ID...");
@@ -184,7 +192,11 @@ pub async fn cmd_check_connection(
         
         match tokio::time::timeout(Duration::from_secs(8), ensure_client_initialized(&app_handle, &state, api_id)).await {
             Ok(Ok(c)) => {
-                if let Ok(true) = c.is_authorized().await {
+                let is_auth = match tokio::time::timeout(Duration::from_secs(5), c.is_authorized()).await {
+                    Ok(Ok(true)) => true,
+                    _ => false,
+                };
+                if is_auth {
                     log::info!("Auto-reconnect successful.");
                     return Ok(true);
                 }
@@ -264,7 +276,7 @@ pub async fn cmd_logout(
     let client_opt = { state.client.lock().await.clone() };
     if let Some(client) = client_opt {
         // We don't strictly care if this fails (e.g. network down), we just want to clear local state.
-        let _ = client.sign_out().await; 
+        let _ = tokio::time::timeout(Duration::from_secs(3), client.sign_out()).await; 
     }
 
     // 3. Clear State
@@ -278,7 +290,7 @@ pub async fn cmd_logout(
     // 4. Remove Session File
     let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
     let session_path = app_data_dir.join("telegram.session");
-    let _ = std::fs::remove_file(session_path);
+    let _ = std::fs::remove_file(&session_path);
     let _ = std::fs::remove_file(app_data_dir.join("telegram.session-wal"));
     let _ = std::fs::remove_file(app_data_dir.join("telegram.session-shm"));
 
@@ -319,21 +331,14 @@ pub async fn cmd_auth_request_code(
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    // Reset unauthorized session file if present to guarantee a fresh login state
+    // Reset session files to guarantee a fresh, clean MTProto connection
     let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
     let session_path = app_data_dir.join("telegram.session");
     if session_path.exists() {
-        if let Ok(sess) = SqliteSession::open(&session_path).await {
-            let sess_arc = Arc::new(sess);
-            let pool = SenderPool::with_configuration(sess_arc, api_id, grammers_mtsender::ConnectionParams::default());
-            let test_client = Client::new(pool.handle);
-            if let Ok(false) | Err(_) = test_client.is_authorized().await {
-                log::info!("Removing unauthorized old session file for clean login...");
-                let _ = std::fs::remove_file(&session_path);
-                let _ = std::fs::remove_file(app_data_dir.join("telegram.session-wal"));
-                let _ = std::fs::remove_file(app_data_dir.join("telegram.session-shm"));
-            }
-        }
+        log::info!("Removing old session file to guarantee fresh Telegram server connection...");
+        let _ = std::fs::remove_file(&session_path);
+        let _ = std::fs::remove_file(app_data_dir.join("telegram.session-wal"));
+        let _ = std::fs::remove_file(app_data_dir.join("telegram.session-shm"));
     }
 
     let client_handle = ensure_client_initialized(&app_handle, &state, api_id).await?;
