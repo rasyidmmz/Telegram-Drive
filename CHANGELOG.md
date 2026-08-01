@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.3]
+
+### Fixed
+
+- Resolved login, auth session restoration, and reconnection stability.
+- Fixed MTProto session restore locks and improved authentication error recovery.
+
 ## [1.1.2]
 
 ### Fixed
