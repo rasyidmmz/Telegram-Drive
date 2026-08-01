@@ -90,12 +90,7 @@ pub async fn ensure_client_initialized(
         }
     };
         
-    let mut connection_params = grammers_mtsender::ConnectionParams::default();
-    connection_params.device_model = "Desktop".to_string();
-    connection_params.system_version = "Windows 11 x64".to_string();
-    connection_params.app_version = "1.2.2".to_string();
-    connection_params.system_lang_code = "en".to_string();
-    connection_params.lang_code = "en".to_string();
+    let connection_params = grammers_mtsender::ConnectionParams::default();
 
     let session = Arc::new(session);
     let pool = SenderPool::with_configuration(session, api_id, connection_params);
@@ -147,69 +142,28 @@ pub async fn cmd_check_connection(
     };
 
     if let Some(client) = client_msg_opt {
-        // 1. Check local authorization state (instant local SQLite check)
-        let is_auth = match tokio::time::timeout(Duration::from_secs(5), client.is_authorized()).await {
-            Ok(Ok(true)) => true,
-            Ok(Ok(false)) => {
-                log::info!("Connection check: Session is not authorized. Clearing stale client...");
-                false
-            }
-            Ok(Err(e)) => {
-                log::warn!("Connection check: is_authorized error: {}", e);
-                false
-            }
-            Err(_) => {
-                log::warn!("Connection check: is_authorized timed out after 5s.");
-                false
-            }
-        };
-
-        if !is_auth {
-            *state.client.lock().await = None;
-            return Ok(false);
+        if match client.is_authorized().await {
+            Ok(true) => true,
+            _ => false,
+        } {
+            return Ok(true);
         }
-
-        // 2. Session authorized locally! Spawn a non-blocking background task to warm up connection via get_me
-        let bg_client = client.clone();
-        tokio::spawn(async move {
-            match tokio::time::timeout(Duration::from_secs(10), bg_client.get_me()).await {
-                Ok(Ok(me)) => {
-                    log::info!("Telegram network ping OK for user @{} (ID: {}).", 
-                        me.username().unwrap_or(""), me.id());
-                }
-                Ok(Err(e)) => {
-                    log::warn!("Background ping get_me returned error: {}", e);
-                }
-                Err(_) => {
-                    log::warn!("Background ping get_me timed out (network slow/reconnecting).");
-                }
-            }
-        });
-
-        // 3. Return true INSTANTLY (<5ms) so the UI enters the app immediately without showing loading modal!
-        return Ok(true);
     }
 
-    // 4. Fallback: If no client loaded yet, try initializing with saved API ID
     let api_id_opt = *state.api_id.lock().await;
     if let Some(api_id) = api_id_opt {
-        log::info!("Connection check: Attempting client re-initialization with saved API ID...");
         *state.client.lock().await = None;
-        
         if let Ok(c) = ensure_client_initialized(&app_handle, &state, api_id).await {
-            let is_auth = match tokio::time::timeout(Duration::from_secs(5), c.is_authorized()).await {
-                Ok(Ok(true)) => true,
+            if match c.is_authorized().await {
+                Ok(true) => true,
                 _ => false,
-            };
-            if is_auth {
-                log::info!("Auto-reconnect successful.");
+            } {
                 return Ok(true);
             }
         }
     }
 
-    *state.client.lock().await = None;
-    Ok(false) // Not connected and no credentials to reconnect
+    Ok(false)
 }
 
 #[tauri::command]
@@ -238,23 +192,17 @@ pub async fn cmd_reconnect_with_network_settings(
     // 2. Clear old client
     *state.client.lock().await = None;
 
-    // 3. Reinitialize with the fixed direct-transfer policy.
+    // 3. Reinitialize
     let client = ensure_client_initialized(&app_handle, &state, api_id).await?;
 
-    // 4. Verify the new connection works with 5s timeout
-    match tokio::time::timeout(Duration::from_secs(5), client.get_me()).await {
-        Ok(Ok(_me)) => {
-            log::info!("Reconnect successful — verified via get_me().");
-            Ok(true)
-        }
-        Ok(Err(e)) => {
-            log::error!("Reconnect init succeeded but get_me failed: {}", e);
-            Err(format!("Reconnected but ping failed: {}", e))
-        }
-        Err(_) => {
-            log::warn!("Reconnect get_me timed out after 5 seconds.");
-            Ok(true)
-        }
+    // 4. Verify connection
+    if match client.is_authorized().await {
+        Ok(true) => true,
+        _ => false,
+    } {
+        Ok(true)
+    } else {
+        Err("Reconnected but authorization check failed.".to_string())
     }
 }
 
@@ -265,7 +213,7 @@ pub async fn cmd_logout(
 ) -> Result<bool, String> {
     log::info!("Logging out...");
     
-    // 1. Shutdown the network runner FIRST to prevent any operations
+    // 1. Shutdown the network runner FIRST
     {
         let mut shutdown_guard = state.runner_shutdown.lock().unwrap();
         if let Some(shutdown_tx) = shutdown_guard.take() {
@@ -274,11 +222,10 @@ pub async fn cmd_logout(
         }
     }
     
-    // 2. Try to sign out from Telegram (if connected)
+    // 2. Try to sign out from Telegram
     let client_opt = { state.client.lock().await.clone() };
     if let Some(client) = client_opt {
-        // We don't strictly care if this fails (e.g. network down), we just want to clear local state.
-        let _ = tokio::time::timeout(Duration::from_secs(3), client.sign_out()).await; 
+        let _ = client.sign_out().await;
     }
 
     // 3. Clear State
@@ -324,45 +271,21 @@ pub async fn cmd_auth_request_code(
     // Store API ID
     *state.api_id.lock().await = Some(api_id);
 
-    // Always clear old/stale client and runner before starting a fresh login
-    {
-        let mut client_guard = state.client.lock().await;
-        if let Some(_existing) = client_guard.take() {
-            log::info!("Clearing old client instance for fresh login request...");
-            let mut shutdown_guard = state.runner_shutdown.lock().unwrap();
-            if let Some(tx) = shutdown_guard.take() {
-                let _ = tx.send(());
-            }
-        }
-    }
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    // Reset session files to guarantee a fresh, clean MTProto connection
-    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
-    let session_path = app_data_dir.join("telegram.session");
-    if session_path.exists() {
-        log::info!("Removing old session file to guarantee fresh Telegram server connection...");
-        let _ = std::fs::remove_file(&session_path);
-        let _ = std::fs::remove_file(app_data_dir.join("telegram.session-wal"));
-        let _ = std::fs::remove_file(app_data_dir.join("telegram.session-shm"));
-    }
-
     let client_handle = ensure_client_initialized(&app_handle, &state, api_id).await?;
     
     log::info!("Requesting code for {}", phone_clean);
     
     let mut last_error = String::new();
     
-    // Retry up to 2 times for AUTH_RESTART or 500 with a 8s timeout per attempt
+    // Retry up to 2 times for AUTH_RESTART or 500
     for i in 1..=2 {
-        let req_fut = client_handle.request_login_code(&phone_clean, &api_hash);
-        match tokio::time::timeout(Duration::from_secs(8), req_fut).await {
-            Ok(Ok(token)) => {
+        match client_handle.request_login_code(&phone_clean, &api_hash).await {
+            Ok(token) => {
                 let mut token_guard = state.login_token.lock().await;
                 *token_guard = Some(token);
                 return Ok("code_sent".to_string());
             },
-            Ok(Err(e)) => {
+            Err(e) => {
                 let err_msg = e.to_string();
                 log::warn!("Error requesting code (Attempt {}): {}", i, err_msg);
                 
@@ -375,14 +298,10 @@ pub async fn cmd_auth_request_code(
                 
                 return Err(map_error(e));
             }
-            Err(_) => {
-                log::warn!("request_login_code timed out after 8 seconds (Attempt {})", i);
-                last_error = "Connection to Telegram timed out after 8 seconds. Please check your internet connection, API ID, API Hash, and phone number.".to_string();
-            }
         }
     }
 
-    Err(format!("Telegram Error: {}", last_error))
+    Err(format!("Telegram Error after retry: {}", last_error))
 }
 
 #[tauri::command]
@@ -402,8 +321,8 @@ pub async fn cmd_auth_sign_in(
 
     let code_clean = code.chars().filter(|c| c.is_ascii_digit()).collect::<String>();
 
-    match tokio::time::timeout(Duration::from_secs(15), client.sign_in(login_token, &code_clean)).await {
-        Ok(Ok(_user)) => {
+    match client.sign_in(login_token, &code_clean).await {
+        Ok(_user) => {
              log::info!("Successfully logged in.");
              Ok(AuthResult {
                 success: true,
@@ -411,7 +330,7 @@ pub async fn cmd_auth_sign_in(
                 error: None,
             })
         }
-        Ok(Err(SignInError::PasswordRequired(token))) => {
+        Err(SignInError::PasswordRequired(token)) => {
             let mut pw_guard = state.password_token.lock().await;
             *pw_guard = Some(token);
 
@@ -421,13 +340,9 @@ pub async fn cmd_auth_sign_in(
                 error: None,
             })
         }
-        Ok(Err(e)) => {
+        Err(e) => {
            log::error!("Sign in error: {}", e);
            Err(format!("Sign in failed: {}", e))
-        }
-        Err(_) => {
-           log::error!("Sign in timed out after 15s.");
-           Err("Sign in timed out. Please check your network connection and try again.".to_string())
         }
     }
 }
@@ -445,8 +360,8 @@ pub async fn cmd_auth_check_password(
     let mut pw_guard = state.password_token.lock().await;
     let pw_token = pw_guard.take().ok_or("No password session found")?;
 
-    match tokio::time::timeout(Duration::from_secs(15), client.check_password(pw_token, password.as_str())).await {
-        Ok(Ok(_user)) => {
+    match client.check_password(pw_token, password.as_str()).await {
+        Ok(_user) => {
              log::info!("2FA Success.");
              Ok(AuthResult {
                 success: true,
@@ -454,8 +369,7 @@ pub async fn cmd_auth_check_password(
                 error: None,
             })
         }
-        Ok(Err(e)) => Err(format!("2FA Failed: {}", e)),
-        Err(_) => Err("2FA check timed out after 15 seconds.".to_string()),
+        Err(e) => Err(format!("2FA Failed: {}", e)),
     }
 }
 

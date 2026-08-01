@@ -61,20 +61,11 @@ function AppContent() {
           return;
         }
 
-        // Initialize and check connection with a 20s safety race timeout
-        const connectPromise = (async () => {
-          await invoke("cmd_connect", { apiId });
-          return await invoke<boolean>("cmd_check_connection");
-        })();
+        // Initialize the client with the saved API ID
+        await invoke("cmd_connect", { apiId });
 
-        const timeoutPromise = new Promise<boolean>((resolve) => {
-          setTimeout(() => {
-            console.warn("Session restore check timed out after 20s, proceeding to login.");
-            resolve(false);
-          }, 20000);
-        });
-
-        const ok = await Promise.race([connectPromise, timeoutPromise]);
+        // Verify the session is still valid with Telegram servers
+        const ok = await invoke<boolean>("cmd_check_connection");
         if (ok) {
           setAuthStatus("authenticated");
         } else {
