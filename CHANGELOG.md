@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2]
+
+### Fixed
+
+- Instant session restoration (<5ms) using local SQLite pre-authorization.
+- Restored v1.1.1 native auth pipeline, eliminating MTProto runner deadlocks and connection hangs.
+- Enforced E.164 international phone number format validation (`+` country code prefix).
+
 ## [1.2.2]
 
 ### Fixed
