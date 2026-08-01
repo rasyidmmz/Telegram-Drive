@@ -188,20 +188,32 @@ export function AuthWizard({ onLogin }: { onLogin: () => void }) {
 
     const handlePhoneSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        let trimmedPhone = phone.trim().replace(/[\s\-\(\)]/g, "");
+        if (!trimmedPhone) {
+            setError("Please enter your phone number.");
+            return;
+        }
+
+        if (!trimmedPhone.startsWith("+")) {
+            setError("Phone number must include international country code starting with '+' (e.g. +628123456789 or +12025550123).");
+            return;
+        }
+
         setLoading(true);
         setError(null);
         try {
             const idInt = parseInt(apiId, 10);
-            if (isNaN(idInt)) throw new Error("API ID must be a number");
+            if (isNaN(idInt)) throw new Error("API ID must be a valid number");
 
             await invoke("cmd_auth_request_code", {
-                phone,
+                phone: trimmedPhone,
                 apiId: idInt,
-                apiHash: apiHash
+                apiHash: apiHash.trim()
             });
             setStep("code");
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : JSON.stringify(err);
+            const msg = typeof err === 'string' ? err : err instanceof Error ? err.message : JSON.stringify(err);
             if (msg.includes("FLOOD_WAIT_")) {
                 const parts = msg.split("FLOOD_WAIT_");
                 if (parts[1]) {

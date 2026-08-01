@@ -90,7 +90,12 @@ pub async fn ensure_client_initialized(
         }
     };
         
-    let connection_params = grammers_mtsender::ConnectionParams::default();
+    let mut connection_params = grammers_mtsender::ConnectionParams::default();
+    connection_params.device_model = "Desktop".to_string();
+    connection_params.system_version = "Windows 11 x64".to_string();
+    connection_params.app_version = "1.2.1".to_string();
+    connection_params.system_lang_code = "en".to_string();
+    connection_params.lang_code = "en".to_string();
 
     let session = Arc::new(session);
     let pool = SenderPool::with_configuration(session, api_id, connection_params);
@@ -315,6 +320,10 @@ pub async fn cmd_auth_request_code(
         return Err("Phone number cannot be empty.".to_string());
     }
 
+    if !phone_clean.starts_with('+') {
+        return Err("Phone number must include country code starting with '+' (e.g. +628123456789 or +12025550123)".to_string());
+    }
+
     // Store API ID
     *state.api_id.lock().await = Some(api_id);
 
@@ -347,10 +356,10 @@ pub async fn cmd_auth_request_code(
     
     let mut last_error = String::new();
     
-    // Retry up to 2 times for AUTH_RESTART or 500 with a 15s timeout
+    // Retry up to 2 times for AUTH_RESTART or 500 with a 8s timeout per attempt
     for i in 1..=2 {
         let req_fut = client_handle.request_login_code(&phone_clean, &api_hash);
-        match tokio::time::timeout(Duration::from_secs(15), req_fut).await {
+        match tokio::time::timeout(Duration::from_secs(8), req_fut).await {
             Ok(Ok(token)) => {
                 let mut token_guard = state.login_token.lock().await;
                 *token_guard = Some(token);
@@ -370,8 +379,8 @@ pub async fn cmd_auth_request_code(
                 return Err(map_error(e));
             }
             Err(_) => {
-                log::warn!("request_login_code timed out after 15 seconds (Attempt {})", i);
-                last_error = "Connection to Telegram timed out. Please check your internet connection and API credentials.".to_string();
+                log::warn!("request_login_code timed out after 8 seconds (Attempt {})", i);
+                last_error = "Connection to Telegram timed out after 8 seconds. Please check your internet connection, API ID, API Hash, and phone number.".to_string();
             }
         }
     }
