@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.2]
+
+### Fixed
+
+- Instant session restoration (<5ms) using local SQLite pre-authorization.
+- Eliminated MTProto runner deadlocks and connection hangs on login and session restore.
+- Enforced E.164 international phone number format validation (`+` country code prefix).
+- Standardized MTProto connection parameters for reliable Data Center handshake.
+
 ## [1.2.1]
 
 ### Fixed

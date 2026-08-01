@@ -93,7 +93,7 @@ pub async fn ensure_client_initialized(
     let mut connection_params = grammers_mtsender::ConnectionParams::default();
     connection_params.device_model = "Desktop".to_string();
     connection_params.system_version = "Windows 11 x64".to_string();
-    connection_params.app_version = "1.2.1".to_string();
+    connection_params.app_version = "1.2.2".to_string();
     connection_params.system_lang_code = "en".to_string();
     connection_params.lang_code = "en".to_string();
 
