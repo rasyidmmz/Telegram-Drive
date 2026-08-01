@@ -1,7 +1,7 @@
 use tauri::State;
 use tauri::Manager;
 use std::sync::Arc;
-use grammers_client::media::Media;
+use grammers_client::types::Media;
 use base64::{Engine as _, engine::general_purpose};
 use rand::Rng;
 use tokio::io::AsyncWriteExt;
@@ -77,7 +77,7 @@ async fn prune_preview_cache(cache_dir: std::path::PathBuf, preserve_path: Optio
 /// Unlike `grammers_client::Client::download_media`, this returns an explicit
 /// error when the download produces zero bytes (e.g. stale file references or
 /// Telegram CDN stream drops).
-async fn download_to_file<D: grammers_client::media::Downloadable>(
+async fn download_to_file<D: grammers_client::types::Downloadable>(
     client: &grammers_client::Client,
     media: &D,
     part_path: &std::path::Path,
@@ -145,7 +145,7 @@ pub async fn cmd_get_preview(
     let client = client_opt.ok_or_else(|| "Client not connected".to_string())?;
 
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
-    let messages = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
+    let messages = client.get_messages_by_id(&peer, &[message_id])
         .await.map_err(|e| e.to_string())?;
     let target_message = messages.into_iter().flatten().next();
 
@@ -153,7 +153,7 @@ pub async fn cmd_get_preview(
         if let Some(media) = msg.media() {
             let ext = match &media {
                 Media::Document(d) => {
-                    let mut e = std::path::Path::new(d.name().unwrap_or(""))
+                    let mut e = std::path::Path::new(d.name())
                         .extension()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_default();
@@ -194,7 +194,7 @@ pub async fn cmd_get_preview(
                     let _ = tokio::fs::remove_file(&save_path).await;
                 }
                 let size = match &media {
-                    Media::Document(d) => d.size().unwrap_or(0) as u64,
+                    Media::Document(d) => d.size() as u64,
                     Media::Photo(_) => 1024 * 1024,
                     _ => 0,
                 };
@@ -261,7 +261,7 @@ pub async fn cmd_get_preview(
                         // Re-fetch the message to obtain a Media object with a fresh file reference.
                         // Telegram file references expire; iter_download returns 0 bytes (caught
                         // by download_to_file) when the reference is stale.
-                        if let Ok(fresh_messages) = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id]).await {
+                        if let Ok(fresh_messages) = client.get_messages_by_id(&peer, &[message_id]).await {
                             if let Some(fresh_msg) = fresh_messages.into_iter().flatten().next() {
                                 if let Some(fresh_media) = fresh_msg.media() {
                                     let _ = tokio::fs::remove_file(&part_path).await;
@@ -432,7 +432,7 @@ pub async fn cmd_get_thumbnail(
     let client = client_opt.ok_or_else(|| "Client not connected".to_string())?;
 
     let peer = resolve_peer(&client, folder_id, &state.peer_cache).await?;
-    let messages = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id])
+    let messages = client.get_messages_by_id(&peer, &[message_id])
         .await.map_err(|e| e.to_string())?;
     if let Some(m) = messages.into_iter().flatten().next() {
         if let Some(media) = m.media() {
@@ -500,7 +500,7 @@ pub async fn cmd_get_thumbnail(
                 // Attempt 2: re-fetch the message to get fresh file references, then retry
                 if !download_ok {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    if let Ok(fresh_messages) = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id]).await {
+                    if let Ok(fresh_messages) = client.get_messages_by_id(&peer, &[message_id]).await {
                         if let Some(fresh_msg) = fresh_messages.into_iter().flatten().next() {
                             if let Some(fresh_media) = fresh_msg.media() {
                                 let fresh_thumbs = match &fresh_media {
@@ -627,5 +627,3 @@ pub async fn cmd_delete_image_thumbnail(
     }).await;
     Ok(())
 }
-
-

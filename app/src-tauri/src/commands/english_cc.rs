@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use tauri::{State, Manager};
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::io::AsyncBufReadExt;
-use grammers_client::media::Media;
+use grammers_client::types::Media;
 use crate::TelegramState;
 use crate::commands::streaming::StreamConfig;
 
@@ -72,12 +72,12 @@ async fn get_video_duration(
     state: &TelegramState,
 ) -> Option<f64> {
     let peer = crate::commands::utils::resolve_peer(client, folder_id, &state.peer_cache).await.ok()?;
-    let messages = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id]).await.ok()?;
+    let messages = client.get_messages_by_id(&peer, &[message_id]).await.ok()?;
     let msg = messages.into_iter().flatten().next()?;
     let media = msg.media()?;
     
     let size = match &media {
-        Media::Document(d) => d.size().unwrap_or(0) as u64,
+        Media::Document(d) => d.size() as u64,
         _ => return None,
     };
     
@@ -455,10 +455,10 @@ pub async fn cmd_generate_english_cc(
 
                 // Auto-upload .en.srt to Telegram folder
                 if let Ok(peer) = crate::commands::utils::resolve_peer(&client, folder_id, &state_tg.peer_cache).await {
-                    if let Ok(messages) = client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id]).await {
+                    if let Ok(messages) = client.get_messages_by_id(&peer, &[message_id]).await {
                         if let Some(msg) = messages.into_iter().flatten().next() {
                             let video_name = match msg.media() {
-                                Some(Media::Document(d)) => d.name().unwrap_or("").to_string(),
+                                Some(Media::Document(d)) => d.name().to_string(),
                                 _ => format!("{}_{}.mkv", folder_id.unwrap_or(0), message_id),
                             };
                             let stem = std::path::Path::new(&video_name)
@@ -471,7 +471,7 @@ pub async fn cmd_generate_english_cc(
                                 let srt_len = srt_bytes.len();
                                 let mut cursor = std::io::Cursor::new(srt_bytes);
                                 if let Ok(uploaded) = client.upload_stream(&mut cursor, srt_len, srt_name.clone()).await {
-                                    let _ = client.send_message(crate::commands::peer_to_ref(&peer), grammers_client::message::InputMessage::new().file(uploaded)).await;
+                                    let _ = client.send_message(&peer, grammers_client::InputMessage::new().file(uploaded)).await;
                                     crate::transfer_log::record_transfer_log(
                                         "Subtitle Auto-Upload",
                                         &format!("Subtitle {} uploaded successfully to Telegram folder.", srt_name),
@@ -591,8 +591,9 @@ mod tests {
         let args = build_audio_extraction_args(url, token, output_wav);
 
         assert_eq!(args[0], "--no-video");
-        assert_eq!(args[1], "--ao=pcm:file=temp.wav");
-        assert_eq!(args[3], "--http-header-fields=X-TeleStash-Stream-Token: mytoken");
+        assert_eq!(args[1], "--benchmark");
+        assert_eq!(args[2], "--ao=pcm:file=temp.wav");
+        assert_eq!(args[4], "--http-header-fields=X-TeleStash-Stream-Token: mytoken");
         assert_eq!(args.last().map(String::as_str), Some(url));
     }
 
@@ -614,5 +615,3 @@ mod tests {
         assert!((seconds - 4535.800).abs() < 0.001);
     }
 }
-
-

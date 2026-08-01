@@ -1,18 +1,18 @@
 pub(crate) fn classify_failure(message: &str, details: Option<&str>) -> &'static str {
     let text = format!("{}\n{}", message, details.unwrap_or_default()).to_ascii_lowercase();
 
-    if text.contains("split")
-        || text.contains("manifest")
-        || text.contains("part missing")
-        || text.contains("size mismatch")
-    {
-        "manifest/split"
-    } else if text.contains("failed to open")
+    if text.contains("failed to open")
         || text.contains("access is denied")
         || text.contains("no such file")
         || text.contains("cannot find the file")
     {
         "local file"
+    } else if text.contains("split")
+        || text.contains("manifest")
+        || text.contains("part missing")
+        || text.contains("size mismatch")
+    {
+        "manifest/split"
     } else if text.contains("flood_wait")
         || text.contains("rpc error")
         || text.contains("telegram")

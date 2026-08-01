@@ -17,7 +17,7 @@ impl SessionHealthManager {
     pub async fn start_monitoring(
         &self,
         client: Client,
-        peer_cache: Arc<tokio::sync::RwLock<std::collections::HashMap<i64, grammers_client::peer::Peer>>>,
+        peer_cache: Arc<tokio::sync::RwLock<std::collections::HashMap<i64, grammers_client::types::Peer>>>,
     ) {
         let mut handle_guard = self.ping_handle.lock().await;
         if let Some(old_task) = handle_guard.take() {

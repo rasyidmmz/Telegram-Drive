@@ -2,8 +2,7 @@ use std::sync::Arc;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::Mutex;
 use grammers_client::{Client};
-use grammers_client::client::{LoginToken, PasswordToken};
-use grammers_client::peer::Peer;
+use grammers_client::types::{LoginToken, PasswordToken, Peer};
 
 /// Tracks the lifecycle of the Telegram connection
 /// 

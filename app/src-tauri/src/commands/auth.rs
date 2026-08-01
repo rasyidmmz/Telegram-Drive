@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use grammers_mtsender::SenderPool;
 use grammers_session::storages::SqliteSession;
+use grammers_session::Session;
 use tokio::sync::oneshot;
 use tokio::time::Duration;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -62,7 +63,7 @@ pub async fn ensure_client_initialized(
     let session_path_str = session_path.to_string_lossy().to_string();
     log::info!("Opening session at: {}", session_path_str);
     
-    let mut session_open_result = SqliteSession::open(&session_path_str).await;
+    let mut session_open_result = SqliteSession::open(&session_path_str);
     
     // Retry opening the session database up to 5 times (every 100ms)
     // in case the database is temporarily locked by the old shutting down runner.
@@ -70,7 +71,7 @@ pub async fn ensure_client_initialized(
         for attempt in 1..=5 {
             log::warn!("Failed to open session on attempt {} (database may be locked). Retrying in 100ms...", attempt);
             tokio::time::sleep(Duration::from_millis(100)).await;
-            session_open_result = SqliteSession::open(&session_path_str).await;
+            session_open_result = SqliteSession::open(&session_path_str);
             if session_open_result.is_ok() {
                 break;
             }
@@ -85,7 +86,7 @@ pub async fn ensure_client_initialized(
             let _ = std::fs::remove_file(format!("{}-wal", session_path_str));
             let _ = std::fs::remove_file(format!("{}-shm", session_path_str));
             
-            SqliteSession::open(&session_path_str).await
+            SqliteSession::open(&session_path_str)
                 .map_err(|err| format!("Failed to open session after recreation: {}", err))?
         }
     };
@@ -94,7 +95,7 @@ pub async fn ensure_client_initialized(
 
     let session = Arc::new(session);
     let pool = SenderPool::with_configuration(session, api_id, connection_params);
-    let client = Client::new(pool.handle);
+    let client = Client::new(&pool);
     
     // Create shutdown channel for this runner
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -136,34 +137,43 @@ pub async fn cmd_check_connection(
     app_handle: tauri::AppHandle,
     state: State<'_, TelegramState>,
 ) -> Result<bool, String> {
+    // 1. Check if client exists and is responsive
     let client_msg_opt = {
         let guard = state.client.lock().await;
         guard.as_ref().cloned()
     };
 
     if let Some(client) = client_msg_opt {
-        if match client.is_authorized().await {
-            Ok(true) => true,
-            _ => false,
-        } {
+        // Ping (e.g., get_me)
+        if client.get_me().await.is_ok() {
             return Ok(true);
         }
+        log::warn!("Connection check failed (get_me). Attempting reconnect...");
+    } else {
+         log::warn!("Connection check: No client found. Checking for saved API ID...");
     }
 
+    // 2. Reconnect Logic
     let api_id_opt = *state.api_id.lock().await;
     if let Some(api_id) = api_id_opt {
+        // Force re-init: Clear old client first to ensure fresh pool
         *state.client.lock().await = None;
-        if let Ok(c) = ensure_client_initialized(&app_handle, &state, api_id).await {
-            if match c.is_authorized().await {
-                Ok(true) => true,
-                _ => false,
-            } {
-                return Ok(true);
-            }
+        
+        match ensure_client_initialized(&app_handle, &state, api_id).await {
+            Ok(c) => {
+                // Double check
+                if c.get_me().await.is_ok() {
+                    log::info!("Auto-reconnect successful.");
+                    return Ok(true);
+                } else {
+                    return Err("Reconnect succeeded but ping failed.".to_string());
+                }
+            },
+            Err(e) => return Err(format!("Auto-reconnect failed: {}", e))
         }
     }
 
-    Ok(false)
+    Ok(false) // Not connected and no credentials to reconnect
 }
 
 #[tauri::command]
@@ -192,17 +202,19 @@ pub async fn cmd_reconnect_with_network_settings(
     // 2. Clear old client
     *state.client.lock().await = None;
 
-    // 3. Reinitialize
+    // 3. Reinitialize with the fixed direct-transfer policy.
     let client = ensure_client_initialized(&app_handle, &state, api_id).await?;
 
-    // 4. Verify connection
-    if match client.is_authorized().await {
-        Ok(true) => true,
-        _ => false,
-    } {
-        Ok(true)
-    } else {
-        Err("Reconnected but authorization check failed.".to_string())
+    // 4. Verify the new connection works
+    match client.get_me().await {
+        Ok(_me) => {
+            log::info!("Reconnect successful — verified via get_me().");
+            Ok(true)
+        }
+        Err(e) => {
+            log::error!("Reconnect init succeeded but get_me failed: {}", e);
+            Err(format!("Reconnected but ping failed: {}", e))
+        }
     }
 }
 
@@ -213,7 +225,7 @@ pub async fn cmd_logout(
 ) -> Result<bool, String> {
     log::info!("Logging out...");
     
-    // 1. Shutdown the network runner FIRST
+    // 1. Shutdown the network runner FIRST to prevent any operations
     {
         let mut shutdown_guard = state.runner_shutdown.lock().unwrap();
         if let Some(shutdown_tx) = shutdown_guard.take() {
@@ -222,10 +234,11 @@ pub async fn cmd_logout(
         }
     }
     
-    // 2. Try to sign out from Telegram
+    // 2. Try to sign out from Telegram (if connected)
     let client_opt = { state.client.lock().await.clone() };
     if let Some(client) = client_opt {
-        let _ = client.sign_out().await;
+        // We don't strictly care if this fails (e.g. network down), we just want to clear local state.
+        let _ = client.sign_out().await; 
     }
 
     // 3. Clear State
@@ -239,7 +252,7 @@ pub async fn cmd_logout(
     // 4. Remove Session File
     let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
     let session_path = app_data_dir.join("telegram.session");
-    let _ = std::fs::remove_file(&session_path);
+    let _ = std::fs::remove_file(session_path);
     let _ = std::fs::remove_file(app_data_dir.join("telegram.session-wal"));
     let _ = std::fs::remove_file(app_data_dir.join("telegram.session-shm"));
 
@@ -255,17 +268,9 @@ pub async fn cmd_auth_request_code(
     api_hash: String,
     state: State<'_, TelegramState>,
 ) -> Result<String, String> {
+    
     if api_hash.trim().is_empty() {
         return Err("API Hash cannot be empty.".to_string());
-    }
-
-    let phone_clean = phone.chars().filter(|c| c.is_ascii_digit() || *c == '+').collect::<String>();
-    if phone_clean.is_empty() {
-        return Err("Phone number cannot be empty.".to_string());
-    }
-
-    if !phone_clean.starts_with('+') {
-        return Err("Phone number must include country code starting with '+' (e.g. +628123456789 or +12025550123)".to_string());
     }
 
     // Store API ID
@@ -273,13 +278,13 @@ pub async fn cmd_auth_request_code(
 
     let client_handle = ensure_client_initialized(&app_handle, &state, api_id).await?;
     
-    log::info!("Requesting code for {}", phone_clean);
+    log::info!("Requesting code for {}", phone);
     
     let mut last_error = String::new();
     
     // Retry up to 2 times for AUTH_RESTART or 500
     for i in 1..=2 {
-        match client_handle.request_login_code(&phone_clean, &api_hash).await {
+        match client_handle.request_login_code(&phone, &api_hash).await {
             Ok(token) => {
                 let mut token_guard = state.login_token.lock().await;
                 *token_guard = Some(token);
@@ -292,10 +297,11 @@ pub async fn cmd_auth_request_code(
                 if err_msg.contains("AUTH_RESTART") || err_msg.contains("500") {
                     log::info!("AUTH_RESTART error detected. Retrying...");
                     last_error = err_msg;
-                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    // Prepare for retry
                     continue;
                 }
                 
+                // Other errors, fail immediately
                 return Err(map_error(e));
             }
         }
@@ -313,15 +319,13 @@ pub async fn cmd_auth_sign_in(
     
     let client = {
         let guard = state.client.lock().await;
-        guard.as_ref().ok_or("Client not initialized. Please go back to phone step.")?.clone()
+        guard.as_ref().ok_or("Client not initialized")?.clone()
     };
 
     let token_guard = state.login_token.lock().await;
     let login_token = token_guard.as_ref().ok_or("No login session found (restart flow)")?;
 
-    let code_clean = code.chars().filter(|c| c.is_ascii_digit()).collect::<String>();
-
-    match client.sign_in(login_token, &code_clean).await {
+    match client.sign_in(login_token, &code).await {
         Ok(_user) => {
              log::info!("Successfully logged in.");
              Ok(AuthResult {
@@ -369,11 +373,12 @@ pub async fn cmd_auth_check_password(
                 error: None,
             })
         }
-        Err(e) => Err(format!("2FA Failed: {}", e)),
+        Err(e) => Err(format!("2FA Failed: {}", e))
     }
 }
 
 /// QR Login -- Step 1: Export a login token and return the `tg://login?token=...` URL.
+/// The frontend renders this as a QR code for the user to scan with their phone.
 #[tauri::command]
 pub async fn cmd_auth_qr_login(
     app_handle: tauri::AppHandle,
@@ -385,36 +390,18 @@ pub async fn cmd_auth_qr_login(
         return Err("API Hash cannot be empty.".to_string());
     }
 
+    // Store API ID
     *state.api_id.lock().await = Some(api_id);
-
-    // Clear old client for fresh QR login
-    {
-        let mut client_guard = state.client.lock().await;
-        if let Some(_existing) = client_guard.take() {
-            log::info!("Clearing old client instance for fresh QR login...");
-            let mut shutdown_guard = state.runner_shutdown.lock().unwrap();
-            if let Some(tx) = shutdown_guard.take() {
-                let _ = tx.send(());
-            }
-        }
-    }
-    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let client = ensure_client_initialized(&app_handle, &state, api_id).await?;
 
     log::info!("Requesting QR login token...");
 
-    let req = tl::functions::auth::ExportLoginToken {
+    let result = client.invoke(&tl::functions::auth::ExportLoginToken {
         api_id,
         api_hash: api_hash.clone(),
         except_ids: vec![],
-    };
-
-    let result = match tokio::time::timeout(Duration::from_secs(15), client.invoke(&req)).await {
-        Ok(Ok(r)) => r,
-        Ok(Err(e)) => return Err(format!("ExportLoginToken failed: {}", e)),
-        Err(_) => return Err("Requesting QR code timed out. Please check your network connection.".to_string()),
-    };
+    }).await.map_err(|e| format!("ExportLoginToken failed: {}", e))?;
 
     match result {
         tl::enums::auth::LoginToken::Token(t) => {
@@ -424,6 +411,7 @@ pub async fn cmd_auth_qr_login(
             Ok(url)
         }
         tl::enums::auth::LoginToken::Success(_s) => {
+            // Already authorized (e.g. from a previous session)
             log::info!("QR login: already authorized");
             Ok("__authorized__".to_string())
         }
@@ -437,6 +425,13 @@ pub async fn cmd_auth_qr_login(
 }
 
 /// QR Login -- Step 2: Poll for scan completion.
+/// Checks if the session became authorized after the user scanned the QR code.
+///
+/// IMPORTANT: We must NOT call auth.exportLoginToken here for polling.
+/// Each call to exportLoginToken generates a NEW token and invalidates the
+/// previous one, causing the scanned QR code to fail with "Invalid code".
+/// Instead, we check is_authorized() which succeeds once the phone app
+/// accepts the token via auth.acceptLoginToken.
 #[tauri::command]
 pub async fn cmd_auth_qr_poll(
     state: State<'_, TelegramState>,
@@ -446,6 +441,7 @@ pub async fn cmd_auth_qr_poll(
         guard.as_ref().ok_or("Client not initialized")?.clone()
     };
 
+    // Check if the session is now authorized (user scanned QR on phone)
     match client.is_authorized().await {
         Ok(true) => {
             log::info!("QR login: session authorized!");
@@ -456,6 +452,7 @@ pub async fn cmd_auth_qr_poll(
             })
         }
         Ok(false) => {
+            // Not yet scanned or accepted
             Ok(AuthResult {
                 success: false,
                 next_step: Some("waiting".to_string()),
@@ -472,4 +469,3 @@ pub async fn cmd_auth_qr_poll(
         }
     }
 }
-

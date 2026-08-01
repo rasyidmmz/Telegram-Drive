@@ -16,9 +16,8 @@ use crate::bandwidth::BandwidthManager;
 use crate::transfer_policy::TransferPolicy;
 use crate::transfer_retry::{flood_wait_retry_attempts, should_retry_upload_error, upload_error_kind, upload_stream_retry_attempts};
 use crate::transfer_log::record_transfer_log;
-use grammers_client::media::Media;
-use grammers_client::peer::Peer;
-use grammers_client::message::InputMessage;
+use grammers_client::types::{Media, Peer};
+use grammers_client::InputMessage;
 use grammers_tl_types as tl;
 use serde::Serialize;
 use std::sync::Arc;
@@ -297,7 +296,7 @@ async fn api_list_files(
 
     let mut all_files: Vec<ApiFile> = Vec::new();
     for (fid, peer) in &peers_to_scan {
-        let mut msgs = client.iter_messages(crate::commands::peer_to_ref(peer));
+        let mut msgs = client.iter_messages(peer);
         if let Some(offset_id) = query.offset_id {
             msgs = msgs.offset_id(offset_id);
         }
@@ -321,11 +320,11 @@ async fn api_list_files(
             if let Some(doc) = msg.media() {
                 let (name, size, mime) = match doc {
                     Media::Document(d) => {
-                        let doc_name = d.name().unwrap_or("").to_string();
+                        let doc_name = d.name().to_string();
                         // Prefer the message caption (set by rename via EditMessage)
                         let caption = msg.text();
                         let display_name = if caption.is_empty() { doc_name } else { caption.to_string() };
-                        (display_name, d.size().unwrap_or(0), d.mime_type().map(|s| s.to_string()))
+                        (display_name, d.size(), d.mime_type().map(|s| s.to_string()))
                     }
                     Media::Photo(_) => ("Photo.jpg".to_string(), 0, Some("image/jpeg".into())),
                     _ => ("Unknown".to_string(), 0, None),
@@ -498,16 +497,16 @@ async fn api_get_file(
         Err(e) => return json_error("PEER_ERROR", &e, 400),
     };
 
-    match client.get_messages_by_id(crate::commands::peer_to_ref(peer), &[message_id]).await {
+    match client.get_messages_by_id(peer, &[message_id]).await {
         Ok(messages) => {
             if let Some(Some(msg)) = messages.first() {
                 if let Some(doc) = msg.media() {
                     let (name, size, mime) = match doc {
                         Media::Document(d) => {
-                            let doc_name = d.name().unwrap_or("").to_string();
+                            let doc_name = d.name().to_string();
                             let caption = msg.text();
                             let display_name = if caption.is_empty() { doc_name } else { caption.to_string() };
-                            (display_name, d.size().unwrap_or(0), d.mime_type().map(|s| s.to_string()))
+                            (display_name, d.size(), d.mime_type().map(|s| s.to_string()))
                         }
                         Media::Photo(_) => ("Photo.jpg".to_string(), 0, Some("image/jpeg".into())),
                         _ => ("Unknown".to_string(), 0, None),
@@ -552,7 +551,7 @@ async fn api_download_file(
         Err(e) => return json_error("PEER_ERROR", &e, 400),
     };
 
-    match client.get_messages_by_id(crate::commands::peer_to_ref(peer), &[message_id]).await {
+    match client.get_messages_by_id(peer, &[message_id]).await {
         Ok(messages) => {
             if let Some(Some(msg)) = messages.first() {
                 if let Some(media) = msg.media() {
@@ -561,7 +560,7 @@ async fn api_download_file(
                         _ => "application/octet-stream".to_string(),
                     };
                     let filename = match &media {
-                        Media::Document(d) => d.name().unwrap_or("").to_string(),
+                        Media::Document(d) => d.name().to_string(),
                         Media::Photo(_) => "Photo.jpg".to_string(),
                         _ => "download".to_string(),
                     };
@@ -656,7 +655,7 @@ async fn api_bulk_files(
                 Err(e) => return json_error("PEER_ERROR", &e, 400),
             };
 
-            let messages = match client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &ids).await {
+            let messages = match client.get_messages_by_id(&peer, &ids).await {
                 Ok(messages) => messages,
                 Err(e) => return json_error("FETCH_ERROR", &format!("Failed to inspect files before delete: {}", e), 500),
             };
@@ -703,7 +702,7 @@ async fn api_bulk_files(
                 Err(e) => return json_error("PEER_ERROR", &e, 400),
             };
             if source_folder != target_folder {
-                let messages = match client.get_messages_by_id(crate::commands::peer_to_ref(&source_peer), &ids).await {
+                let messages = match client.get_messages_by_id(&source_peer, &ids).await {
                     Ok(messages) => messages,
                     Err(e) => return json_error("FETCH_ERROR", &format!("Failed to inspect files before move: {}", e), 500),
                 };
@@ -719,7 +718,7 @@ async fn api_bulk_files(
                     }
                 }
 
-                if let Err(e) = client.forward_messages(crate::commands::peer_to_ref(&target_peer), &ids, crate::commands::peer_to_ref(&source_peer)).await {
+                if let Err(e) = client.forward_messages(&target_peer, &ids, &source_peer).await {
                     return json_error("MOVE_FORWARD_FAILED", &format!("Forward failed: {}", e), 500);
                 }
                 if let Err(e) = delete_message_ids(&client, &source_peer, &ids, "API bulk move source cleanup").await {
@@ -752,14 +751,14 @@ async fn api_bulk_files(
                         let max_bytes = net_config.archive_max_bytes();
 
                         for mid in &ids {
-                let messages = match client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[*mid]).await {
+                let messages = match client.get_messages_by_id(&peer, &[*mid]).await {
                     Ok(m) => m,
                     Err(_) => continue,
                 };
                 if let Some(m) = messages.into_iter().flatten().next() {
                     if let Some(media) = m.media() {
                         let filename = match &media {
-                            Media::Document(d) => d.name().unwrap_or("").to_string(),
+                            Media::Document(d) => d.name().to_string(),
                             Media::Photo(_) => format!("photo_{}.jpg", mid),
                             _ => format!("file_{}.bin", mid),
                         };
@@ -925,15 +924,15 @@ async fn api_search_files(
 
     let mut matching_files = Vec::new();
     for (fid, peer) in &peers_to_scan {
-        let mut msgs = client.iter_messages(crate::commands::peer_to_ref(peer)).limit(200);
+        let mut msgs = client.iter_messages(peer).limit(200);
         while let Some(msg) = msgs.next().await.ok().flatten() {
             if let Some(doc) = msg.media() {
                 let (name, size, mime) = match doc {
                     Media::Document(d) => {
-                        let doc_name = d.name().unwrap_or("").to_string();
+                        let doc_name = d.name().to_string();
                         let caption = msg.text();
                         let display_name = if caption.is_empty() { doc_name } else { caption.to_string() };
-                        (display_name, d.size().unwrap_or(0), d.mime_type().map(|s| s.to_string()))
+                        (display_name, d.size(), d.mime_type().map(|s| s.to_string()))
                     }
                     Media::Photo(_) => ("Photo.jpg".to_string(), 0, Some("image/jpeg".into())),
                     _ => ("Unknown".to_string(), 0, None),
@@ -983,7 +982,7 @@ async fn api_delete_file(
         Err(e) => return json_error("PEER_ERROR", &e, 400),
     };
 
-    let messages = match client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id]).await {
+    let messages = match client.get_messages_by_id(&peer, &[message_id]).await {
         Ok(messages) => messages,
         Err(e) => return json_error("DELETE_FAILED", &e.to_string(), 500),
     };
@@ -1044,7 +1043,7 @@ async fn api_copy_file(
         Err(e) => return json_error("TARGET_PEER_ERROR", &e, 400),
     };
 
-    if let Ok(messages) = client.get_messages_by_id(crate::commands::peer_to_ref(&source_peer), &[message_id]).await {
+    if let Ok(messages) = client.get_messages_by_id(&source_peer, &[message_id]).await {
         if let Some(Some(msg)) = messages.first() {
             if let Some(media) = msg.media() {
                 if split_manifest_from_media(&client, &media, msg.text()).await.is_some() {
@@ -1054,7 +1053,7 @@ async fn api_copy_file(
         }
     }
 
-    match client.forward_messages(crate::commands::peer_to_ref(&target_peer), &[message_id], crate::commands::peer_to_ref(&source_peer)).await {
+    match client.forward_messages(&target_peer, &[message_id], &source_peer).await {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "success": true })),
         Err(e) => json_error("COPY_FAILED", &e.to_string(), 500),
     }
@@ -1098,7 +1097,7 @@ async fn api_update_file(
         // Verify the message exists before attempting to edit it.
         // This avoids a cryptic MESSAGE_ID_INVALID RPC error when the message
         // was moved or deleted since the file list was loaded.
-        let messages = match client.get_messages_by_id(crate::commands::peer_to_ref(&rename_peer), &[message_id]).await {
+        let messages = match client.get_messages_by_id(&rename_peer, &[message_id]).await {
             Ok(msgs) => msgs,
             Err(e) => return json_error("FETCH_ERROR", &format!("Failed to fetch message for rename: {}", e), 500),
         };
@@ -1130,7 +1129,6 @@ async fn api_update_file(
             schedule_date: None,
             quick_reply_shortcut_id: None,
             schedule_repeat_period: None,
-            rich_message: None,
         }).await {
             return json_error("RENAME_FAILED", &e.to_string(), 500);
         }
@@ -1148,7 +1146,7 @@ async fn api_update_file(
                 Err(e) => return json_error("TARGET_PEER_ERROR", &e, 400),
             };
 
-            if let Ok(messages) = client.get_messages_by_id(crate::commands::peer_to_ref(&source_peer), &[message_id]).await {
+            if let Ok(messages) = client.get_messages_by_id(&source_peer, &[message_id]).await {
                 if let Some(Some(msg)) = messages.first() {
                     if let Some(media) = msg.media() {
                         if split_manifest_from_media(&client, &media, msg.text()).await.is_some() {
@@ -1158,10 +1156,10 @@ async fn api_update_file(
                 }
             }
 
-            if let Err(e) = client.forward_messages(crate::commands::peer_to_ref(&target_peer), &[message_id], crate::commands::peer_to_ref(&source_peer)).await {
+            if let Err(e) = client.forward_messages(&target_peer, &[message_id], &source_peer).await {
                 return json_error("MOVE_FORWARD_FAILED", &e.to_string(), 500);
             }
-            if let Err(e) = client.delete_messages(crate::commands::peer_to_ref(&source_peer), &[message_id]).await {
+            if let Err(e) = client.delete_messages(&source_peer, &[message_id]).await {
                 return json_error("MOVE_DELETE_FAILED", &e.to_string(), 500);
             }
 
@@ -1381,7 +1379,7 @@ async fn api_upload_file(
     let mut sent_msg = None;
 
     for attempt in 0..=max_retries {
-        match client.send_message(crate::commands::peer_to_ref(&peer), message.clone()).await {
+        match client.send_message(&peer, message.clone()).await {
             Ok(msg) => {
                 sent_msg = Some(msg);
                 break;
@@ -1630,11 +1628,11 @@ async fn api_storage_stats(
     for (fid, folder_name, peer) in peers_to_scan {
         let mut file_count = 0;
         let mut size_bytes = 0;
-        let mut msgs = client.iter_messages(crate::commands::peer_to_ref(peer)).limit(200);
+        let mut msgs = client.iter_messages(peer).limit(200);
         while let Some(msg) = msgs.next().await.ok().flatten() {
             if let Some(doc) = msg.media() {
                 let (size, mime) = match doc {
-                    Media::Document(d) => (d.size().unwrap_or(0) as u64, d.mime_type().unwrap_or("application/octet-stream").to_string()),
+                    Media::Document(d) => (d.size() as u64, d.mime_type().unwrap_or("application/octet-stream").to_string()),
                     Media::Photo(_) => (0, "image/jpeg".to_string()),
                     _ => continue,
                 };
@@ -1712,11 +1710,11 @@ async fn api_storage_duplicates(
     let mut file_groups: HashMap<(String, u64), Vec<ApiFile>> = HashMap::new();
 
     for (fid, peer) in peers_to_scan {
-        let mut msgs = client.iter_messages(crate::commands::peer_to_ref(peer)).limit(200);
+        let mut msgs = client.iter_messages(peer).limit(200);
         while let Some(msg) = msgs.next().await.ok().flatten() {
             if let Some(doc) = msg.media() {
                 let (name, size, mime) = match doc {
-                    Media::Document(d) => (d.name().unwrap_or("").to_string(), d.size().unwrap_or(0) as u64, d.mime_type().map(|s| s.to_string())),
+                    Media::Document(d) => (d.name().to_string(), d.size() as u64, d.mime_type().map(|s| s.to_string())),
                     Media::Photo(_) => ("Photo.jpg".to_string(), 0, Some("image/jpeg".into())),
                     _ => continue,
                 };
@@ -1773,7 +1771,7 @@ async fn api_empty_folders(
     let mut empty_folders = Vec::new();
 
     for (fid, display_name, peer) in folders_to_check {
-        let mut msgs = client.iter_messages(crate::commands::peer_to_ref(peer)).limit(1);
+        let mut msgs = client.iter_messages(peer).limit(1);
         let mut is_empty = true;
         if let Some(msg) = msgs.next().await.ok().flatten() {
             if msg.media().is_some() {
@@ -1821,7 +1819,7 @@ async fn api_get_file_thumbnail(
         Err(e) => return json_error("PEER_ERROR", &e, 400),
     };
 
-    let messages = match client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id]).await {
+    let messages = match client.get_messages_by_id(&peer, &[message_id]).await {
         Ok(msgs) => msgs,
         Err(e) => return json_error("GET_MESSAGE_ERROR", &e.to_string(), 500),
     };
@@ -1914,7 +1912,7 @@ async fn api_media_info(
         Err(e) => return json_error("PEER_ERROR", &e, 400),
     };
 
-    let messages = match client.get_messages_by_id(crate::commands::peer_to_ref(&peer), &[message_id]).await {
+    let messages = match client.get_messages_by_id(&peer, &[message_id]).await {
         Ok(msgs) => msgs,
         Err(e) => return json_error("GET_MESSAGE_ERROR", &e.to_string(), 500),
     };
@@ -1982,5 +1980,3 @@ pub fn configure_api(cfg: &mut web::ServiceConfig) {
        .service(api_get_file_thumbnail)
        .service(api_media_info);
 }
-
-

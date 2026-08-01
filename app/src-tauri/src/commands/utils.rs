@@ -1,19 +1,10 @@
 use grammers_client::Client;
-use grammers_client::peer::Peer;
-use grammers_session::types::PeerRef;
+use grammers_client::types::Peer;
 use tauri::State;
 use crate::bandwidth::BandwidthManager;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-pub fn peer_to_ref(peer: impl std::borrow::Borrow<Peer>) -> PeerRef {
-    match peer.borrow() {
-        Peer::User(u) => PeerRef::from(&u.raw),
-        Peer::Group(g) => PeerRef::from(&g.raw),
-        Peer::Channel(c) => PeerRef::from(&c.raw),
-    }
-}
 
 /// Resolve a folder_id to a Telegram Peer, using the cache for O(1) lookups.
 ///
