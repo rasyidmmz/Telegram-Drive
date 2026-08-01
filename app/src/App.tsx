@@ -61,7 +61,7 @@ function AppContent() {
           return;
         }
 
-        // Initialize and check connection with a 10s safety race timeout
+        // Initialize and check connection with a 20s safety race timeout
         const connectPromise = (async () => {
           await invoke("cmd_connect", { apiId });
           return await invoke<boolean>("cmd_check_connection");
@@ -69,9 +69,9 @@ function AppContent() {
 
         const timeoutPromise = new Promise<boolean>((resolve) => {
           setTimeout(() => {
-            console.warn("Session restore check timed out after 10s, proceeding to login.");
+            console.warn("Session restore check timed out after 20s, proceeding to login.");
             resolve(false);
-          }, 10000);
+          }, 20000);
         });
 
         const ok = await Promise.race([connectPromise, timeoutPromise]);
@@ -82,14 +82,6 @@ function AppContent() {
         }
       } catch (err) {
         console.warn("Session restore failed, showing login:", err);
-        // Session file is corrupt or revoked — clean up and show login
-        try {
-          const store = await load("config.json");
-          await store.delete("api_id");
-          await store.save();
-        } catch {
-          // best-effort cleanup
-        }
         setAuthStatus("unauthenticated");
       }
     };

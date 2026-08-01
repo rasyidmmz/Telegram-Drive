@@ -147,8 +147,8 @@ pub async fn cmd_check_connection(
     };
 
     if let Some(client) = client_msg_opt {
-        // 1. Check local authorization state with a 5s timeout (prevent hanging if MTProto socket is stuck)
-        let is_auth = match tokio::time::timeout(Duration::from_secs(5), client.is_authorized()).await {
+        // 1. Check local authorization state with a 10s timeout
+        let is_auth = match tokio::time::timeout(Duration::from_secs(10), client.is_authorized()).await {
             Ok(Ok(true)) => true,
             Ok(Ok(false)) => {
                 log::info!("Connection check: Session is not authorized. Clearing stale client...");
@@ -159,7 +159,7 @@ pub async fn cmd_check_connection(
                 false
             }
             Err(_) => {
-                log::warn!("Connection check: is_authorized timed out after 5s.");
+                log::warn!("Connection check: is_authorized timed out after 10s.");
                 false
             }
         };
@@ -169,24 +169,30 @@ pub async fn cmd_check_connection(
             return Ok(false);
         }
 
-        // 2. Verified authorized locally, now verify active network ping with get_me (5s timeout)
-        log::info!("Connection check: Session authorized. Pinging Telegram via get_me (5s timeout)...");
-        match tokio::time::timeout(Duration::from_secs(5), client.get_me()).await {
-            Ok(Ok(_me)) => {
-                log::info!("Connection check: Telegram network ping OK.");
-                return Ok(true);
+        // 2. Verified authorized locally (session file has valid auth key).
+        // Ping get_me with a 10s timeout to warm up the connection, but if get_me times out or encounters temporary network lag,
+        // since is_authorized is true, we STILL return Ok(true) so the user stays logged in!
+        log::info!("Connection check: Session authorized! Warming up connection via get_me...");
+        match tokio::time::timeout(Duration::from_secs(10), client.get_me()).await {
+            Ok(Ok(me)) => {
+                log::info!("Connection check: Telegram network ping OK for user @{} (ID: {}).", 
+                    me.username().unwrap_or(""), me.id());
             }
             Ok(Err(e)) => {
-                log::warn!("Connection check: get_me failed ({}). Session may be revoked.", e);
-                *state.client.lock().await = None;
-                return Ok(false);
+                let err_str = e.to_string();
+                if err_str.contains("AUTH_KEY_UNREGISTERED") || err_str.contains("SESSION_REVOKED") || err_str.contains("USER_DEACTIVATED") {
+                    log::warn!("Session revoked by Telegram server: {}", err_str);
+                    *state.client.lock().await = None;
+                    return Ok(false);
+                }
+                log::warn!("Connection check: get_me returned non-fatal error: {}. Keeping authorized session.", err_str);
             }
             Err(_) => {
-                log::warn!("Connection check: get_me timed out after 5 seconds. Connection unreachable.");
-                *state.client.lock().await = None;
-                return Ok(false);
+                log::warn!("Connection check: get_me timed out after 10s (slow network), but session is valid. Keeping authorized session.");
             }
         }
+
+        return Ok(true);
     }
 
     // 3. Fallback: If no client loaded yet, try initializing with saved API ID
@@ -195,19 +201,15 @@ pub async fn cmd_check_connection(
         log::info!("Connection check: Attempting client re-initialization with saved API ID...");
         *state.client.lock().await = None;
         
-        match tokio::time::timeout(Duration::from_secs(8), ensure_client_initialized(&app_handle, &state, api_id)).await {
-            Ok(Ok(c)) => {
-                let is_auth = match tokio::time::timeout(Duration::from_secs(5), c.is_authorized()).await {
-                    Ok(Ok(true)) => true,
-                    _ => false,
-                };
-                if is_auth {
-                    log::info!("Auto-reconnect successful.");
-                    return Ok(true);
-                }
+        if let Ok(c) = ensure_client_initialized(&app_handle, &state, api_id).await {
+            let is_auth = match tokio::time::timeout(Duration::from_secs(10), c.is_authorized()).await {
+                Ok(Ok(true)) => true,
+                _ => false,
+            };
+            if is_auth {
+                log::info!("Auto-reconnect successful.");
+                return Ok(true);
             }
-            Ok(Err(e)) => log::warn!("Auto-reconnect failed: {}", e),
-            Err(_) => log::warn!("Auto-reconnect timed out after 8s"),
         }
     }
 
