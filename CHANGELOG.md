@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.4]
+
+### Fixed
+
+- Fixed main content area overflowing to the right when a folder is opened, causing empty-folder upload UI and TopBar menu buttons to be partially hidden.
+- Fixed TopBar `overflow-hidden` clipping all icon buttons (Settings, Analytics, Logs, etc.) — only the search bar was visible.
+- Fixed MPV player displaying incorrect title and streaming from the wrong folder when a file lives in a different folder than the one currently active in the sidebar.
+- Fixed Recent Watch History "Resume" opening the first file of the currently-viewed folder instead of the actual resumed file when that file belongs to a different folder.
+
 ## [1.1.3]
 
 ### Fixed

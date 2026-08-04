@@ -32,7 +32,7 @@ export function TopBar({
     const { t } = useTranslation();
     const errorLogs = useErrorLogs();
     return (
-        <header className="h-14 border-b border-telegram-border flex items-center justify-between px-3 sm:px-4 gap-2 bg-telegram-surface/80 backdrop-blur-md sticky top-0 z-10 overflow-hidden" onClick={e => e.stopPropagation()}>
+        <header className="h-14 border-b border-telegram-border flex items-center justify-between px-3 sm:px-4 gap-2 bg-telegram-surface/80 backdrop-blur-md sticky top-0 z-10 min-w-0" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-start gap-2 shrink-0 min-w-0 max-w-[160px] sm:max-w-xs md:max-w-none">
                 <div className="flex items-center text-sm breadcrumbs text-telegram-subtext select-none font-mono min-w-0">
                     <span className="text-xs text-cyan-400 shrink-0">root</span>

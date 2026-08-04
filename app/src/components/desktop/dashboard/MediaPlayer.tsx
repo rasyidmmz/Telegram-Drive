@@ -32,9 +32,12 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
         invoke<StreamInfo>('cmd_get_stream_info').then(setStreamInfo).catch(() => {});
     }, []);
 
-    const folderIdParam = activeFolderId !== null ? activeFolderId.toString() : 'home';
+    // Derive folderIdParam from the file itself, not the sidebar's activeFolderId.
+    // This ensures the stream URL is correct even when resuming from history while
+    // a different folder is active (fixes wrong-title / wrong-stream bug).
+    const fileFolderParam = file.folder_id != null ? file.folder_id.toString() : 'home';
     const streamUrl = streamInfo
-        ? `${streamInfo.base_url}/stream/${folderIdParam}/${file.id}?token=${streamInfo.token}`
+        ? `${streamInfo.base_url}/stream/${fileFolderParam}/${file.id}?token=${streamInfo.token}`
         : null;
 
     const isVideo = isVideoFile(file.name);
@@ -59,7 +62,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
         if (isMedia && streamUrl && !isPlayingInMpv && !mpvError) {
             const playlistItems = streamInfo && sortedPlaylistFiles.length > 0
                 ? sortedPlaylistFiles.map(f => ({
-                    url: `${streamInfo.base_url}/stream/${folderIdParam}/${f.id}?token=${streamInfo.token}`,
+                    url: `${streamInfo.base_url}/stream/${f.folder_id != null ? f.folder_id.toString() : 'home'}/${f.id}?token=${streamInfo.token}`,
                     message_id: f.id,
                     folder_id: f.folder_id ?? undefined,
                     title: f.name
@@ -89,7 +92,7 @@ export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, total
                     toast.error(`Failed to play in MPV: ${errMsg}`);
                 });
         }
-    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id, file.name, file, sortedPlaylistFiles, streamInfo, folderIdParam]);
+    }, [isMedia, streamUrl, isPlayingInMpv, mpvError, file.id, file.folder_id, file.name, file, sortedPlaylistFiles, streamInfo, fileFolderParam]);
 
     // Handle keyboard shortcuts (Left/Right arrow keys for navigation, Esc for close)
     useEffect(() => {

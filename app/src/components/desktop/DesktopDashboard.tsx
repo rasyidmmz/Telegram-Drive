@@ -726,7 +726,7 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                 onDeleteGroup={handleDeleteGroup}
             />
 
-            <main className="flex-1 flex flex-col">
+            <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
                 <TopBar
                     currentFolderName={currentFolderName}
                     selectedIds={selectedIds}
@@ -757,7 +757,9 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                     <RecentWatchBar
                         entries={watchHistory}
                         onPlay={(entry) => {
-                            const targetFile = displayedFiles.find(f => f.id === entry.file_id) || ({
+                            // Always build targetFile from history entry so the
+                            // correct file identity (id, name, folder_id) is used.
+                            const targetFile: TelegramFile = displayedFiles.find(f => f.id === entry.file_id) || ({
                                 id: entry.file_id,
                                 name: entry.file_name,
                                 type: 'file',
@@ -766,6 +768,16 @@ export function Dashboard({ onLogout }: { onLogout: () => void }) {
                                 date: entry.timestamp,
                                 folder_id: entry.folder_id ?? undefined
                             } as unknown as TelegramFile);
+
+                            // If the file lives in a different folder, navigate there first.
+                            // displayedFiles will be empty while the new folder loads, so
+                            // MediaPlayer will receive an empty playlist and MPV will play
+                            // only this exact file — correct title, correct stream URL.
+                            const entryFolderId = entry.folder_id ?? null;
+                            if (entryFolderId !== activeFolderId) {
+                                setActiveFolderId(entryFolderId);
+                            }
+
                             setPlayingFile(targetFile);
                         }}
                         onRefresh={refreshWatchHistory}
