@@ -22,7 +22,7 @@ interface MediaPlayerProps {
     playlistFiles?: TelegramFile[];
 }
 
-export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, totalItems, activeFolderId, playlistFiles }: MediaPlayerProps) {
+export function MediaPlayer({ file, onClose, onNext, onPrev, currentIndex, totalItems, activeFolderId: _activeFolderId, playlistFiles }: MediaPlayerProps) {
     const [streamInfo, setStreamInfo] = useState<StreamInfo | null>(null);
     const [isPlayingInMpv, setIsPlayingInMpv] = useState(false);
     const [mpvError, setMpvError] = useState<string | null>(null);
